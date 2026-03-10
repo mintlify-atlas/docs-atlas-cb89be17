@@ -1,0 +1,156 @@
+---
+title: sift info
+description: Display project configuration and processing stats
+---
+
+# sift info
+
+Display project configuration and processing statistics in a formatted table.
+
+## Usage
+
+```bash
+sift info
+```
+
+## Description
+
+The `info` command provides a comprehensive overview of your current sift-kg project configuration and processing status. It displays information about:
+
+- Domain configuration (entity types, relation types)
+- LLM model settings
+- Output directory location
+- Processing statistics (documents processed, graph size)
+- Entity resolution status (merge proposals, relation reviews)
+- Narrative generation status
+
+This is useful for:
+- Verifying project configuration
+- Checking processing progress
+- Understanding the current state of your knowledge graph
+- Debugging configuration issues
+
+## Output
+
+The command displays a formatted table with the following information:
+
+<ResponseField name="Domain" type="string">
+  The active domain name (e.g., "schema-free", "general", "osint", "academic")
+</ResponseField>
+
+<ResponseField name="Entity Types" type="string">
+  Comma-separated list of entity types defined in the domain
+</ResponseField>
+
+<ResponseField name="Relation Types" type="number">
+  Number of relation types defined in the domain
+</ResponseField>
+
+<ResponseField name="Default Model" type="string">
+  The configured LLM model (e.g., "openai/gpt-4o-mini")
+</ResponseField>
+
+<ResponseField name="Output Directory" type="string">
+  Path to the output directory where all results are stored
+</ResponseField>
+
+<ResponseField name="Documents Processed" type="number">
+  Number of documents that have been extracted (based on files in `output/extractions/`)
+</ResponseField>
+
+<ResponseField name="Graph" type="string">
+  Knowledge graph statistics if built (e.g., "425 entities, 1122 relations") or "Not built"
+</ResponseField>
+
+<ResponseField name="Merge Proposals" type="string">
+  Entity merge proposal counts by status (confirmed, draft, rejected) if resolution has been run
+</ResponseField>
+
+<ResponseField name="Relation Review" type="string">
+  Relation review counts by status (confirmed, draft, rejected) if flagged relations exist
+</ResponseField>
+
+<ResponseField name="Narrative Generated" type="string">
+  Whether a narrative summary has been generated ("Yes" or "No")
+</ResponseField>
+
+## Example Output
+
+```bash
+sift info
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    sift-kg Project Info                      │
+├──────────────────────┬──────────────────────────────────────┤
+│ Metric               │ Value                                 │
+├──────────────────────┼──────────────────────────────────────┤
+│ Domain               │ schema-free (schema-free)             │
+│ Entity Types         │ PERSON, ORGANIZATION, LOCATION...     │
+│ Relation Types       │ 15                                    │
+│ Default Model        │ openai/gpt-4o-mini                    │
+│ Output Directory     │ ./output                              │
+│ Documents Processed  │ 12                                    │
+│ Graph                │ 425 entities, 1122 relations          │
+│ Merge Proposals      │ 5 confirmed, 3 draft, 2 rejected      │
+│ Relation Review      │ 8 confirmed, 2 draft, 1 rejected      │
+│ Narrative Generated  │ Yes                                   │
+└──────────────────────┴──────────────────────────────────────┘
+```
+
+## Configuration
+
+The command reads configuration from:
+- `sift.yaml` (if present)
+- Environment variables (`.env`)
+- Default settings
+
+No command-line options are available. The command always displays information for the current project directory.
+
+## Use Cases
+
+### Verify Configuration
+
+Check that your domain and model are configured correctly before starting extraction:
+
+```bash
+sift init
+sift info  # Verify defaults
+```
+
+### Check Progress
+
+Monitor processing status during a long-running pipeline:
+
+```bash
+sift extract ./documents/
+sift info  # See how many documents processed
+```
+
+### Debug Issues
+
+Understand the current state when troubleshooting:
+
+```bash
+sift info
+# Check output directory, graph status, domain configuration
+```
+
+### Review Status
+
+Check resolution and review status before applying merges:
+
+```bash
+sift resolve
+sift review
+sift info  # See how many proposals are confirmed vs draft
+sift apply-merges
+```
+
+## See Also
+
+- [init](/api/cli/init) - Initialize a new project and create `sift.yaml`
+- [build](/api/cli/build) - Build knowledge graph
+- [resolve](/api/cli/resolve) - Find duplicate entities
+- [review](/api/cli/review) - Review merge proposals

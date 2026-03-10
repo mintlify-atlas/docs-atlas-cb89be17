@@ -76,7 +76,8 @@
               "api/cli/view",
               "api/cli/search",
               "api/cli/export",
-              "api/cli/domains"
+              "api/cli/domains",
+              "api/cli/info"
             ]
           },
           {
