@@ -1,0 +1,318 @@
+---
+title: Building Knowledge Graphs
+description: Convert extraction results into a unified knowledge graph
+icon: diagram-project
+---
+
+The `sift build` command consolidates extraction results from multiple documents into a single knowledge graph, handling entity merging, relation normalization, and quality checks.
+
+## Quick Start
+
+```bash
+# After running sift extract
+sift build
+```
+
+This builds a graph from all extraction files in `output/extractions/` and saves it to `output/graph_data.json`.
+
+## Command Options
+
+<ParamField path="--domain" type="path">
+  Path to custom domain YAML (must match extraction domain)
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name (must match extraction domain)
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory. Defaults to `output/`.
+</ParamField>
+
+<ParamField path="--review-threshold" type="float" default="0.7">
+  Relations below this confidence are flagged for review
+</ParamField>
+
+<ParamField path="--no-postprocess" type="boolean">
+  Skip redundancy removal and relation normalization
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Enable verbose logging
+</ParamField>
+
+## What Graph Building Does
+
+<Steps>
+  <Step title="Load Extractions">
+    Reads all extraction JSON files from `output/extractions/`
+  </Step>
+  
+  <Step title="Deduplicate Entities">
+    Merges near-identical entity names within documents (e.g., "Dr. Smith" → "Smith")
+  </Step>
+  
+  <Step title="Create Graph Structure">
+    - Adds entity nodes with attributes and confidence scores
+    - Creates relation edges between entities
+    - Tracks source documents for provenance
+  </Step>
+  
+  <Step title="Postprocessing">
+    Runs unless `--no-postprocess` is specified:
+    - Normalizes relation types to match domain schema
+    - Fixes passive voice relations ("is authored by" → "AUTHORED")
+    - Removes redundant edges (duplicate relations)
+    - Prunes isolated entities with no connections
+  </Step>
+  
+  <Step title="Quality Review">
+    - Flags low-confidence relations for manual review
+    - Flags domain-specific relations that require verification
+  </Step>
+</Steps>
+
+## Examples
+
+### Basic Usage
+
+```bash
+# Build with default settings
+sift build
+
+# Use custom domain
+sift build --domain ./my-domain.yaml
+
+# Stricter review threshold
+sift build --review-threshold 0.85
+```
+
+### Skipping Postprocessing
+
+```bash
+# Keep all relations, including redundant ones
+sift build --no-postprocess
+```
+
+Useful for debugging or when you want full control over graph cleanup.
+
+## Graph Structure
+
+The output `graph_data.json` is a NetworkX MultiDiGraph serialized to JSON:
+
+```json
+{
+  "directed": true,
+  "multigraph": true,
+  "nodes": [
+    {
+      "id": "person:john_smith",
+      "name": "John Smith",
+      "entity_type": "PERSON",
+      "confidence": 0.95,
+      "source_documents": ["document1", "document2"],
+      "attributes": {
+        "role": "CEO",
+        "aliases": ["J. Smith", "Dr. Smith"]
+      },
+      "context": "John Smith was appointed CEO in 2020"
+    }
+  ],
+  "edges": [
+    {
+      "source": "person:john_smith",
+      "target": "organization:acme_corp",
+      "relation_type": "WORKS_FOR",
+      "confidence": 0.9,
+      "evidence": "John Smith was appointed CEO of Acme Corp",
+      "source_document": "document1",
+      "support_count": 3,
+      "support_documents": ["document1", "document2"]
+    }
+  ]
+}
+```
+
+### Entity IDs
+
+Entities get stable IDs based on normalized name + type:
+
+```
+person:john_smith
+organization:acme_corp
+concept:deep_learning
+```
+
+This ensures the same entity mentioned across documents gets a single node.
+
+### Provenance Tracking
+
+Every entity and relation tracks:
+- `source_documents`: Which documents mention this entity
+- `support_count`: How many times this relation appears
+- `support_documents`: Which documents support this relation
+
+## Postprocessing Details
+
+### Relation Normalization
+
+Maps undefined relation types to valid domain types:
+
+```
+"is a member of" → "MEMBER_OF"
+"works at" → "WORKS_FOR"
+"created" → "CREATED"
+```
+
+### Passive Voice Activation
+
+Rewrites passive relations to active voice:
+
+```
+"is authored by" → "AUTHORED" (direction reversed)
+"was founded by" → "FOUNDED" (direction reversed)
+```
+
+### Redundancy Removal
+
+When multiple documents extract the same relation:
+- Keeps highest confidence
+- Merges evidence strings
+- Tracks all supporting documents
+
+### Isolated Node Pruning
+
+Removes entities with no relations (often extraction errors):
+
+```
+Before: 1000 entities, 800 relations
+After:  950 entities, 800 relations  (50 isolated nodes removed)
+```
+
+<Note>
+Document nodes (`DOCUMENT` type) are never pruned—they're needed for `sift view --source-doc`.
+</Note>
+
+## Review Files
+
+If relations are flagged, `sift build` creates `relation_review.yaml`:
+
+```yaml
+review_threshold: 0.7
+relations:
+  - source_id: person:john_smith
+    source_name: John Smith
+    target_id: organization:acme_corp
+    target_name: Acme Corp
+    relation_type: WORKS_FOR
+    confidence: 0.65
+    evidence: "Smith mentioned Acme in passing"
+    source_document: document3
+    status: DRAFT
+    flag_reason: "Low confidence (0.65 < 0.7)"
+```
+
+Use `sift review` to approve or reject these relations.
+
+## Schema-Free Mode
+
+When using `--domain-name schema-free`, the graph builder:
+
+1. Loads the discovered schema from `output/discovered_domain.yaml`
+2. Uses discovered types for normalization
+3. Allows any entity/relation types not in the schema
+
+```bash
+sift build --domain-name schema-free
+```
+
+## Performance
+
+Graph building is fast (no LLM calls):
+
+- 100 documents: ~5 seconds
+- 1,000 documents: ~30 seconds
+- 10,000 documents: ~5 minutes
+
+Memory usage scales with graph size (typically 100-500 MB for large graphs).
+
+## Output Summary
+
+```
+$ sift build
+
+Loading: 42 extraction files
+Using discovered schema: 8 entity types
+
+Graph built!
+  Entities: 1,247
+  Relations: 3,891
+  Flagged for review: 23 relations
+  Output: output/graph_data.json
+
+Next: sift resolve to find duplicate entities
+```
+
+## Troubleshooting
+
+### "No extractions found"
+
+Run `sift extract` first. The extraction directory should contain JSON files:
+
+```bash
+ls output/extractions/
+# Should show: document1.json, document2.json, ...
+```
+
+### Domain mismatch errors
+
+If you change domains between extraction and build:
+
+```bash
+# Re-extract with new domain
+sift extract ./docs --domain ./new-domain.yaml --force
+
+# Then build
+sift build --domain ./new-domain.yaml
+```
+
+### Too many flagged relations
+
+Lower the review threshold:
+
+```bash
+sift build --review-threshold 0.5
+```
+
+Or disable review entirely in your domain YAML:
+
+```yaml
+relation_types:
+  WORKS_FOR:
+    review_required: false  # Don't flag for review
+```
+
+### Graph too large to visualize
+
+Use filters when viewing:
+
+```bash
+sift view --top 100  # Show only top 100 entities
+sift view --min-confidence 0.8  # High-confidence only
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Resolve Duplicates" icon="object-group" href="/guides/resolution-workflow">
+    Find and merge duplicate entities across documents
+  </Card>
+  
+  <Card title="Visualize Graph" icon="eye" href="/guides/visualization">
+    Explore your knowledge graph interactively
+  </Card>
+  
+  <Card title="Export Data" icon="download" href="/guides/export">
+    Export to GraphML, CSV, or SQLite for analysis
+  </Card>
+</CardGroup>

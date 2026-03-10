@@ -1,0 +1,545 @@
+---
+title: Exporting Knowledge Graphs
+description: Export to GraphML, GEXF, CSV, SQLite, and JSON for external analysis
+icon: download
+---
+
+The `sift export` command converts your knowledge graph into standard formats for use in external tools like Gephi, Cytoscape, Neo4j, Excel, and more.
+
+## Quick Start
+
+```bash
+# Export to GraphML (default)
+sift export graphml
+
+# Export to CSV
+sift export csv
+
+# Export to SQLite database
+sift export sqlite
+```
+
+## Command Syntax
+
+```bash
+sift export <format> [options]
+```
+
+<ParamField path="format" type="choice" required>
+  Export format:
+  - `graphml` — GraphML XML (yEd, Cytoscape, NetworkX)
+  - `gexf` — GEXF XML (Gephi native format)
+  - `csv` — CSV tables (Excel, Pandas, R)
+  - `sqlite` — SQLite database (SQL queries, BI tools)
+  - `json` — sift-kg native JSON format
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory containing `graph_data.json` (defaults to `output/`)
+</ParamField>
+
+<ParamField path="--to" type="path">
+  Custom export file/directory path
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Verbose logging
+</ParamField>
+
+## Export Formats
+
+### GraphML
+
+**Best for**: yEd, Cytoscape, Gephi, NetworkX, igraph
+
+```bash
+sift export graphml
+
+# Custom output path
+sift export graphml --to ./analysis/graph.graphml
+```
+
+**Features:**
+- Full attribute preservation (entity types, confidence, evidence)
+- Pre-computed layout (spring layout, 1000x1000 canvas)
+- Node colors by entity type
+- Edge colors by relation type
+- Compatible with most graph analysis tools
+
+**Output**: Single `.graphml` file
+
+<Accordion title="GraphML Structure">
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml>
+  <graph edgedefault="directed">
+    <node id="person:john_smith">
+      <data key="name">John Smith</data>
+      <data key="entity_type">PERSON</data>
+      <data key="label">John Smith</data>
+      <data key="color">#42A5F5</data>
+      <data key="size">25.0</data>
+      <data key="x">123.45</data>
+      <data key="y">678.90</data>
+    </node>
+    <edge source="person:john_smith" target="organization:acme_corp">
+      <data key="relation_type">WORKS_FOR</data>
+      <data key="label">WORKS_FOR</data>
+      <data key="confidence">0.95</data>
+      <data key="evidence">John Smith is CEO of Acme Corp</data>
+      <data key="color">#4CAF50</data>
+    </edge>
+  </graph>
+</graphml>
+```
+</Accordion>
+
+### GEXF
+
+**Best for**: Gephi (native format)
+
+```bash
+sift export gexf
+
+# Custom path
+sift export gexf --to ./gephi/knowledge-graph.gexf
+```
+
+**Features:**
+- Gephi's native format (best compatibility)
+- RGB colors for nodes and edges
+- Pre-computed positions (spring layout)
+- All attributes preserved
+
+**Output**: Single `.gexf` file
+
+**Gephi Import:**
+1. Open Gephi
+2. File → Open → Select `.gexf` file
+3. Graph loads with colors and layout already applied
+
+<Tip>
+Use GEXF for Gephi, GraphML for everything else. Both contain the same data.
+</Tip>
+
+### CSV
+
+**Best for**: Excel, Pandas, R, SQL imports, manual analysis
+
+```bash
+sift export csv
+
+# Custom directory
+sift export csv --to ./analysis/csv-export
+```
+
+**Output**: Directory with two CSV files
+- `entities.csv` — Entity nodes
+- `relations.csv` — Relation edges
+
+#### entities.csv
+
+```csv
+id,name,entity_type,confidence,source_documents,attributes,description
+person:john_smith,John Smith,PERSON,0.95,"document1; document2","{""role"": ""CEO""}","John Smith is the CEO of..."
+organization:acme_corp,Acme Corporation,ORGANIZATION,0.9,document1,"{}","Acme Corporation is a..."
+```
+
+#### relations.csv
+
+```csv
+source,target,relation_type,confidence,support_count,support_documents,support_doc_count,evidence,source_document
+person:john_smith,organization:acme_corp,WORKS_FOR,0.95,3,"document1; document2",2,"John Smith is CEO of Acme Corp",document1
+```
+
+**Excel Import:**
+```
+1. Open Excel
+2. Data → From Text/CSV
+3. Select entities.csv or relations.csv
+4. Import with semicolon as delimiter for list fields
+```
+
+**Pandas Import:**
+```python
+import pandas as pd
+
+entities = pd.read_csv('output/csv/entities.csv')
+relations = pd.read_csv('output/csv/relations.csv')
+
+# Analyze top entities by support documents
+top_entities = entities.nlargest(10, 'confidence')
+
+# Find most supported relations
+top_relations = relations.nlargest(10, 'support_count')
+```
+
+### SQLite
+
+**Best for**: SQL queries, BI tools, joins with other data
+
+```bash
+sift export sqlite
+
+# Custom database path
+sift export sqlite --to ./analysis/knowledge-graph.db
+```
+
+**Output**: Single `.sqlite` database file
+
+**Schema:**
+
+```sql
+CREATE TABLE nodes (
+    node_id TEXT PRIMARY KEY,
+    name TEXT,
+    entity_type TEXT,
+    confidence REAL,
+    source_documents TEXT,  -- semicolon-separated
+    attributes TEXT,        -- JSON string
+    description TEXT
+);
+
+CREATE TABLE edges (
+    source_id TEXT,
+    target_id TEXT,
+    relation_type TEXT,
+    confidence REAL,
+    support_count INTEGER,
+    support_documents TEXT,     -- semicolon-separated
+    support_doc_count INTEGER,
+    evidence TEXT,
+    source_document TEXT,
+    FOREIGN KEY(source_id) REFERENCES nodes(node_id),
+    FOREIGN KEY(target_id) REFERENCES nodes(node_id)
+);
+
+CREATE INDEX idx_edges_source ON edges(source_id);
+CREATE INDEX idx_edges_target ON edges(target_id);
+CREATE INDEX idx_edges_relation ON edges(relation_type);
+```
+
+**Example Queries:**
+
+<CodeGroup>
+```sql Top Entities
+-- Most mentioned entities
+SELECT name, entity_type, 
+       LENGTH(source_documents) - LENGTH(REPLACE(source_documents, ';', '')) + 1 AS doc_count
+FROM nodes
+WHERE entity_type != 'DOCUMENT'
+ORDER BY doc_count DESC
+LIMIT 20;
+```
+
+```sql Entity Connections
+-- Who does John Smith work with?
+SELECT 
+    e.relation_type,
+    n.name AS connected_entity,
+    n.entity_type,
+    e.confidence,
+    e.evidence
+FROM edges e
+JOIN nodes n ON e.target_id = n.node_id
+WHERE e.source_id = 'person:john_smith'
+ORDER BY e.confidence DESC;
+```
+
+```sql Relation Statistics
+-- Count relations by type
+SELECT 
+    relation_type,
+    COUNT(*) AS count,
+    AVG(confidence) AS avg_confidence,
+    SUM(support_count) AS total_support
+FROM edges
+GROUP BY relation_type
+ORDER BY count DESC;
+```
+
+```sql Cross-Document Validation
+-- Entities mentioned in multiple documents (high confidence)
+SELECT 
+    name,
+    entity_type,
+    LENGTH(source_documents) - LENGTH(REPLACE(source_documents, ';', '')) + 1 AS doc_count,
+    confidence
+FROM nodes
+WHERE entity_type != 'DOCUMENT'
+  AND source_documents LIKE '%;%'  -- Contains semicolon = multiple docs
+ORDER BY doc_count DESC;
+```
+</CodeGroup>
+
+**Open in DB Browser:**
+```bash
+# Install DB Browser for SQLite (free GUI)
+brew install --cask db-browser-for-sqlite  # macOS
+
+# Open database
+open output/graph.sqlite
+```
+
+### JSON
+
+**Best for**: Python scripts, JavaScript apps, re-importing to sift-kg
+
+```bash
+sift export json
+
+# Custom path
+sift export json --to ./backup/graph-snapshot.json
+```
+
+**Output**: sift-kg native format (same as `graph_data.json`)
+
+This is the internal format used by sift-kg. Use for:
+- Backups and versioning
+- Sharing graphs between sift-kg installations
+- Custom processing with NetworkX:
+
+```python
+import networkx as nx
+import json
+
+# Load as NetworkX MultiDiGraph
+with open('output/graph.json') as f:
+    data = json.load(f)
+    
+G = nx.node_link_graph(data)
+
+# Run NetworkX algorithms
+import networkx.algorithms.community as nx_comm
+communities = nx_comm.louvain_communities(G.to_undirected())
+
+# Analyze
+print(f"Communities: {len(communities)}")
+for i, comm in enumerate(communities):
+    print(f"Community {i+1}: {len(comm)} entities")
+```
+
+## Including Descriptions
+
+If you've run `sift narrate`, entity descriptions are automatically included in exports:
+
+```bash
+# Generate descriptions first
+sift narrate
+
+# Export with descriptions embedded
+sift export graphml
+sift export csv
+sift export sqlite
+```
+
+Descriptions appear in:
+- GraphML/GEXF: `description` attribute on nodes
+- CSV: `description` column in `entities.csv`
+- SQLite: `description` column in `nodes` table
+
+<Note>
+Without `sift narrate`, the description field will be empty.
+</Note>
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Network Analysis in Python/R">
+    **Export to CSV**, then analyze with Pandas/NetworkX/igraph:
+    
+    ```python
+    import pandas as pd
+    import networkx as nx
+    
+    # Load CSV export
+    entities = pd.read_csv('output/csv/entities.csv')
+    relations = pd.read_csv('output/csv/relations.csv')
+    
+    # Build NetworkX graph
+    G = nx.DiGraph()
+    for _, row in entities.iterrows():
+        G.add_node(row['id'], **row.to_dict())
+    for _, row in relations.iterrows():
+        G.add_edge(row['source'], row['target'], **row.to_dict())
+    
+    # Centrality analysis
+    centrality = nx.betweenness_centrality(G)
+    top_10 = sorted(centrality.items(), key=lambda x: -x[1])[:10]
+    ```
+  </Accordion>
+  
+  <Accordion title="Graph Visualization in Gephi">
+    **Export to GEXF**, open in Gephi:
+    
+    ```bash
+    sift export gexf --to ./gephi-import.gexf
+    ```
+    
+    In Gephi:
+    1. File → Open → `gephi-import.gexf`
+    2. Graph loads with colors and positions
+    3. Apply layout algorithms (Force Atlas 2, Fruchterman-Reingold)
+    4. Adjust styling and export publication-quality images
+  </Accordion>
+  
+  <Accordion title="Business Intelligence / Dashboards">
+    **Export to SQLite**, connect from BI tools:
+    
+    ```bash
+    sift export sqlite --to ./dashboard/knowledge-graph.db
+    ```
+    
+    Connect from:
+    - **Tableau**: SQLite connector
+    - **Power BI**: ODBC driver for SQLite
+    - **Metabase**: SQLite database connection
+    - **Apache Superset**: SQLite support
+    
+    Build dashboards showing:
+    - Entity counts by type over time
+    - Most connected entities
+    - Confidence score distributions
+    - Document coverage (entities per doc)
+  </Accordion>
+  
+  <Accordion title="Data Lineage / Audit Trails">
+    **Export to CSV** for audit reports:
+    
+    ```bash
+    sift export csv --to ./audit/extraction-report-2024-03
+    ```
+    
+    Use `source_documents`, `support_documents`, `evidence` fields to trace:
+    - Which documents mention each entity
+    - Evidence supporting each relation
+    - Cross-document validation (entities in 3+ docs = high confidence)
+  </Accordion>
+  
+  <Accordion title="Graph Database Import (Neo4j)">
+    **Export to CSV**, import to Neo4j:
+    
+    ```bash
+    sift export csv --to ./neo4j-import
+    ```
+    
+    Neo4j Cypher import script:
+    ```cypher
+    // Load entities as nodes
+    LOAD CSV WITH HEADERS FROM 'file:///entities.csv' AS row
+    CREATE (e:Entity {
+      id: row.id,
+      name: row.name,
+      type: row.entity_type,
+      confidence: toFloat(row.confidence)
+    });
+    
+    // Load relations as edges
+    LOAD CSV WITH HEADERS FROM 'file:///relations.csv' AS row
+    MATCH (source:Entity {id: row.source})
+    MATCH (target:Entity {id: row.target})
+    CREATE (source)-[r:RELATED {
+      type: row.relation_type,
+      confidence: toFloat(row.confidence),
+      evidence: row.evidence
+    }]->(target);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Format Comparison
+
+| Format | Best For | Node Attrs | Edge Attrs | Multi-Edges | File Size |
+|--------|----------|------------|------------|-------------|-----------|
+| **GraphML** | General-purpose, yEd, Cytoscape | ✅ Full | ✅ Full | ⚠️ Merged | Large |
+| **GEXF** | Gephi | ✅ Full | ✅ Full | ⚠️ Merged | Large |
+| **CSV** | Excel, Pandas, SQL import | ✅ Full | ✅ Full | ✅ Preserved | Small |
+| **SQLite** | SQL queries, BI tools | ✅ Full | ✅ Full | ✅ Preserved | Medium |
+| **JSON** | Python, backup, re-import | ✅ Full | ✅ Full | ✅ Preserved | Medium |
+
+<Warning>
+GraphML and GEXF don't support multi-edges well (multiple relations between same entity pair). Parallel edges are merged, with relation types concatenated: `WORKS_FOR; FOUNDED`.
+
+Use CSV or SQLite if you need to preserve every individual relation.
+</Warning>
+
+## Advanced Options
+
+### Custom Export Paths
+
+```bash
+# Export to specific file
+sift export graphml --to ~/Desktop/analysis.graphml
+
+# Export CSV to specific directory
+sift export csv --to ~/Documents/graph-export
+
+# Change output directory (where graph_data.json is read from)
+sift export graphml -o ./project-output
+```
+
+### Batch Exports
+
+```bash
+# Export all formats for archival
+sift export json --to ./archive/graph.json
+sift export graphml --to ./archive/graph.graphml
+sift export csv --to ./archive/csv
+sift export sqlite --to ./archive/graph.db
+```
+
+## Troubleshooting
+
+### "Graph not found"
+
+Run `sift build` first to create `graph_data.json`.
+
+### Attribute truncation in GraphML/GEXF
+
+Complex attributes (nested dicts, long lists) are JSON-serialized to strings. This is a format limitation.
+
+For full attribute access, use CSV or SQLite exports.
+
+### Large file sizes
+
+GraphML/GEXF are verbose XML formats. For large graphs (>10k entities):
+
+```bash
+# Use CSV (smaller)
+sift export csv
+
+# Or compress GraphML
+sift export graphml --to graph.graphml
+gzip graph.graphml  # graph.graphml.gz
+```
+
+### Parallel edges collapsed
+
+GraphML/GEXF collapse multi-edges (same source/target, different types).
+
+**Solution**: Use CSV or SQLite to preserve all individual relations:
+
+```bash
+sift export csv  # relations.csv has one row per relation
+```
+
+### Special characters in CSV
+
+Entity names with commas, quotes, or newlines are properly escaped.
+
+If importing to Excel and seeing issues:
+- Use "From Text/CSV" import wizard (not drag-and-drop)
+- Select UTF-8 encoding
+- Use semicolon delimiter for list fields (`source_documents`, `support_documents`)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Visualize Graph" icon="eye" href="/guides/visualization">
+    Interactive exploration before exporting
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/cli/export">
+    Programmatic export from Python scripts
+  </Card>
+</CardGroup>

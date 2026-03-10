@@ -1,0 +1,233 @@
+---
+title: "FTX Collapse Example"
+description: "Knowledge graph from 9 Wikipedia articles about the FTX cryptocurrency exchange collapse"
+---
+
+Complete sift-kg pipeline output from 9 Wikipedia articles documenting the FTX cryptocurrency exchange collapse, producing a graph of **373 entities** and **1,184 relations** after deduplication.
+
+## Overview
+
+This example demonstrates knowledge graph extraction from journalistic and encyclopedic content, with emphasis on the entity resolution workflow to merge duplicate entities across multiple documents.
+
+<CardGroup cols={2}>
+
+<Card title="View Interactive Graph" icon="diagram-project">
+  Open `examples/ftx/output/graph.html` in your browser
+</Card>
+
+<Card title="Source Documents" icon="file-lines">
+  9 text files covering FTX, Alameda Research, Binance, and key people
+</Card>
+
+</CardGroup>
+
+## Quick Start
+
+```bash
+# View the interactive graph (no installation needed)
+open examples/ftx/output/graph.html     # macOS
+xdg-open examples/ftx/output/graph.html # Linux
+
+# Or use sift's built-in viewer
+sift view -o examples/ftx/output
+```
+
+## Pipeline Output
+
+The `output/` directory contains the complete pipeline results:
+
+```
+ftx/
+├── docs/                          # 9 source documents (~148K total)
+└── output/
+    ├── extractions/               # Per-document entity+relation JSON from LLM
+    ├── graph_data.json            # Knowledge graph (373 entities, 1184 relations)
+    ├── merge_proposals.yaml       # Entity merge decisions (CONFIRMED/REJECTED)
+    ├── entity_descriptions.json   # AI-generated entity descriptions
+    ├── narrative.md               # Prose narrative with entity profiles
+    └── graph.html                 # Interactive pyvis graph viewer
+```
+
+## Pipeline Statistics
+
+| Metric | Value |
+|--------|-------|
+| **Input Documents** | 9 text files (~148K total) |
+| **Topics Covered** | FTX, Alameda Research, Binance, Sam Bankman-Fried, and other key figures |
+| **Raw Entities Extracted** | ~777 entities from LLM |
+| **After Pre-dedup (semhash)** | 750 entities (27 deterministic merges) |
+| **After Build + Postprocess** | 432 entities, 1,201 relations |
+| **After Resolution (3 passes)** | 373 entities, 1,184 relations (59 entities merged via LLM + human review) |
+| **Final Entity Descriptions** | 100 entity profiles in narrative |
+| **Model Used** | claude-haiku-4-5-20251001 |
+| **Total Cost** | ~$0.28 (extraction was separate) |
+
+## Entity Resolution Workflow
+
+This example showcases the full deduplication pipeline:
+
+### 1. Automatic Semantic Deduplication
+
+During extraction, semantic hashing automatically merges near-identical entities:
+
+- **Before**: 777 raw entities
+- **After**: 750 entities (27 deterministic merges)
+
+### 2. Build + Postprocess
+
+Graph construction with normalization and filtering:
+
+- **Result**: 432 entities, 1,201 relations
+
+### 3. LLM-Assisted Resolution
+
+Three passes of `sift resolve` to identify remaining duplicates:
+
+```bash
+sift resolve -o examples/ftx/output --model claude-haiku-4-5-20251001
+```
+
+This generates `merge_proposals.yaml` with candidate merges:
+
+```yaml
+merges:
+  - primary: "Sam Bankman-Fried"
+    duplicates:
+      - "SBF"
+      - "Samuel Bankman-Fried"
+    status: CONFIRMED
+    reasoning: "Same person, different name variations"
+  
+  - primary: "FTX Trading Ltd."
+    duplicates:
+      - "FTX"
+      - "FTX.com"
+    status: CONFIRMED
+    reasoning: "Same exchange entity"
+```
+
+### 4. Human Review
+
+```bash
+sift review -o examples/ftx/output
+```
+
+Interactive review to confirm or reject each proposed merge.
+
+### 5. Apply Merges
+
+```bash
+sift apply-merges -o examples/ftx/output
+```
+
+**Final result**: 373 entities, 1,184 relations (59 entities merged)
+
+## Key Insights from the Graph
+
+The generated narrative (`narrative.md`) provides:
+
+- **Overview** — High-level synthesis of the FTX collapse timeline
+- **Entity descriptions** — AI-generated profiles for 100 key entities (companies, people, events)
+- **Relationship mapping** — How FTX, Alameda, Binance, and key figures are connected
+
+## Re-running the Example
+
+### Option 1: Build from Existing Extractions (Free)
+
+Use the pre-extracted entities — no LLM API calls:
+
+```bash
+pip install sift-kg
+sift build -o examples/ftx/output
+sift view -o examples/ftx/output
+```
+
+### Option 2: Full Pipeline from Scratch
+
+Re-extract entities from the source documents:
+
+```bash
+# Extract entities
+sift extract examples/ftx/docs \
+  --model openai/gpt-4o-mini \
+  -o my-output
+
+# Build the knowledge graph
+sift build -o my-output
+
+# Resolve duplicate entities (3 passes recommended)
+sift resolve -o my-output --model openai/gpt-4o-mini
+
+# Review proposed merges
+sift review -o my-output
+
+# Apply confirmed merges
+sift apply-merges -o my-output
+
+# Generate narrative
+sift narrate -o my-output --model openai/gpt-4o-mini
+
+# View the result
+sift view -o my-output
+```
+
+<Tip>
+  Run `sift resolve` multiple times (2-3 passes) to catch progressively more subtle duplicates. Each pass refines the merge proposals.
+</Tip>
+
+## Cost Breakdown
+
+The ~$0.28 total cost includes:
+
+- **Resolution** — LLM calls across 3 passes to identify duplicates
+- **Narration** — LLM calls to generate entity descriptions and overview
+
+(Extraction cost was calculated separately.)
+
+Costs will vary based on:
+- Number of entities to resolve
+- Model chosen (Haiku vs GPT-4o-mini vs others)
+- Number of resolution passes
+
+## Use Cases
+
+This example pattern works well for:
+
+- **Investigative journalism** — Map connections across news articles
+- **Business intelligence** — Track companies, people, and events across sources
+- **Historical analysis** — Document timelines and relationships in major events
+- **Due diligence** — Aggregate information about entities from multiple sources
+
+## Merge Proposals File
+
+The `merge_proposals.yaml` file is a key artifact:
+
+```yaml
+merges:
+  - primary: "Primary Entity Name"
+    duplicates:
+      - "Duplicate 1"
+      - "Duplicate 2"
+    status: CONFIRMED  # or REJECTED
+    reasoning: "Why these should be merged"
+```
+
+This file:
+- Is generated by `sift resolve`
+- Can be manually edited before applying
+- Supports version control and collaboration
+- Is applied with `sift apply-merges`
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Explore Other Examples" icon="folder-open" href="/examples/overview">
+  See Transformers and Epstein examples
+</Card>
+
+<Card title="Resolution Guide" icon="code-merge" href="/guides/resolution-workflow">
+  Learn more about entity deduplication
+</Card>
+
+</CardGroup>

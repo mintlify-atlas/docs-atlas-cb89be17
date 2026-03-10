@@ -1,0 +1,246 @@
+---
+title: Installation
+description: Install sift-kg and set up your environment for building knowledge graphs from documents
+---
+
+## Requirements
+
+sift-kg requires **Python 3.11 or higher**.
+
+You can verify your Python version:
+
+```bash
+python --version
+```
+
+If you need to upgrade Python, visit [python.org/downloads](https://www.python.org/downloads/).
+
+## Install sift-kg
+
+<Steps>
+  <Step title="Install via pip">
+    Install the base package:
+
+    ```bash
+    pip install sift-kg
+    ```
+
+    This installs the core sift-kg CLI with support for 75+ document formats (PDF, DOCX, XLSX, PPTX, HTML, EPUB, images, and more).
+  </Step>
+
+  <Step title="Verify installation">
+    Check that sift-kg is installed correctly:
+
+    ```bash
+    sift --help
+    ```
+
+    You should see the available commands: `extract`, `build`, `resolve`, `review`, `apply-merges`, `narrate`, `view`, and more.
+  </Step>
+</Steps>
+
+## Optional Dependencies
+
+sift-kg has several optional features you can enable depending on your needs.
+
+### OCR Support (Scanned PDFs)
+
+If you need to process scanned PDFs or images, install Tesseract OCR on your system:
+
+<CodeGroup>
+
+```bash macOS
+brew install tesseract
+```
+
+```bash Ubuntu/Debian
+sudo apt install tesseract-ocr
+```
+
+```bash Windows (Chocolatey)
+choco install tesseract
+```
+
+</CodeGroup>
+
+Once installed, enable OCR with the `--ocr` flag:
+
+```bash
+sift extract ./documents/ --ocr
+```
+
+sift-kg autodetects which PDFs need OCR — text-rich PDFs use standard extraction, only near-empty pages fall back to OCR.
+
+<Tip>
+  By default, sift-kg uses Tesseract (local, no API keys needed). You can switch OCR engines with `--ocr-backend`:
+  - `tesseract` — Default, local
+  - `easyocr` — Local, more accurate but slower
+  - `paddleocr` — Local, fast for Asian languages
+  - `gcv` — Google Cloud Vision (requires credentials and `sift-kg[ocr]` extras)
+</Tip>
+
+### Google Cloud Vision OCR (Optional)
+
+For Google Cloud Vision as an alternative OCR backend:
+
+```bash
+pip install sift-kg[ocr]
+```
+
+Then use:
+
+```bash
+sift extract ./documents/ --ocr --ocr-backend gcv
+```
+
+<Note>
+  Google Cloud Vision requires setting up GCP credentials. For most users, local Tesseract OCR (included by default) is sufficient.
+</Note>
+
+### Semantic Clustering (Optional)
+
+For improved entity resolution using semantic embeddings (~2GB download for PyTorch):
+
+```bash
+pip install sift-kg[embeddings]
+```
+
+This enables semantic clustering during entity resolution, which groups similar entities together even if they have different spellings (e.g., "Robert Smith" and "Bob Smith").
+
+Use it with:
+
+```bash
+sift resolve --embeddings
+```
+
+<Tip>
+  The embeddings feature is most useful for large graphs (1000+ entities) or when dealing with many name variations. For smaller graphs, the default alphabetical batching works well.
+</Tip>
+
+### Install All Optional Dependencies
+
+To install everything at once:
+
+```bash
+pip install sift-kg[all]
+```
+
+This includes:
+- Google Cloud Vision OCR support
+- Semantic clustering with sentence-transformers
+
+## LLM Provider Setup
+
+sift-kg works with any LLM provider supported by [LiteLLM](https://docs.litellm.ai/docs/providers). The most common options are:
+
+<Steps>
+  <Step title="Get an API key">
+    Choose your LLM provider and get an API key:
+
+    - **OpenAI** — Get your key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+    - **Anthropic** — Get your key at [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+    - **Mistral** — Get your key at [console.mistral.ai](https://console.mistral.ai)
+    - **Ollama** — Run models locally (no API key needed)
+
+    <Tip>
+      For local/private deployment, use [Ollama](https://ollama.ai) to run models on your own machine — no API keys or cloud services required.
+    </Tip>
+  </Step>
+
+  <Step title="Initialize your project">
+    Run `sift init` to create configuration files:
+
+    ```bash
+    sift init
+    ```
+
+    This creates two files:
+    - `.env.example` — Template for API keys
+    - `sift.yaml` — Project configuration
+  </Step>
+
+  <Step title="Configure your API key">
+    Copy `.env.example` to `.env` and add your API key:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and add your key:
+
+    ```bash .env
+    # Choose your provider:
+    SIFT_OPENAI_API_KEY=sk-...
+    # SIFT_ANTHROPIC_API_KEY=sk-ant-...
+    # SIFT_MISTRAL_API_KEY=...
+
+    # Set your default model
+    SIFT_DEFAULT_MODEL=openai/gpt-4o-mini
+    ```
+
+    <CodeGroup>
+
+    ```bash OpenAI
+    SIFT_OPENAI_API_KEY=sk-proj-...
+    SIFT_DEFAULT_MODEL=openai/gpt-4o-mini
+    ```
+
+    ```bash Anthropic
+    SIFT_ANTHROPIC_API_KEY=sk-ant-...
+    SIFT_DEFAULT_MODEL=anthropic/claude-haiku-4.5
+    ```
+
+    ```bash Mistral
+    SIFT_MISTRAL_API_KEY=...
+    SIFT_DEFAULT_MODEL=mistral/mistral-small
+    ```
+
+    ```bash Ollama (Local)
+    # No API key needed for Ollama
+    SIFT_DEFAULT_MODEL=ollama/llama3.3
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit your `.env` file to version control. The `.env.example` file is safe to commit — it contains no secrets.
+</Warning>
+
+## Development Installation
+
+If you want to contribute to sift-kg or modify the source code:
+
+```bash
+git clone https://github.com/juanceresa/sift-kg.git
+cd sift-kg
+pip install -e ".[dev]"
+```
+
+This installs sift-kg in editable mode with development dependencies (pytest, ruff).
+
+## Verify Your Setup
+
+Check your installation and configuration:
+
+```bash
+sift info
+```
+
+This displays your current configuration, including:
+- Domain settings
+- Default model
+- Output directory
+- Processing stats (if you've run the pipeline)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build your first knowledge graph in 5 minutes
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/api/cli/extract">
+    Explore all available commands
+  </Card>
+</CardGroup>

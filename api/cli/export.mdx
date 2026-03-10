@@ -1,0 +1,246 @@
+---
+title: "sift export"
+description: "Export knowledge graph to various formats"
+---
+
+## Overview
+
+Export the knowledge graph to standard formats for use in external tools, analysis platforms, or visualization software.
+
+## Usage
+
+```bash
+sift export FORMAT [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="format" type="string" required>
+  Export format. Supported values:
+  - `json` - JSON graph format
+  - `graphml` - GraphML XML format (default)
+  - `gexf` - GEXF XML format for Gephi
+  - `csv` - CSV edge/node lists
+  - `sqlite` - SQLite database
+</ParamField>
+
+## Options
+
+<ParamField path="--output" type="string">
+  Output directory containing graph data. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--to" type="string">
+  Export file or directory path. Overrides default location.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Supported Formats
+
+### GraphML (Default)
+
+XML-based graph format supported by:
+- Cytoscape
+- yEd
+- Neo4j
+- NetworkX
+
+Default output: `{output_dir}/graph.graphml`
+
+### GEXF
+
+Graph Exchange XML Format for:
+- Gephi
+- Sigma.js
+- Graph visualization tools
+
+Default output: `{output_dir}/graph.gexf`
+
+### JSON
+
+Structured JSON with full graph data:
+- Nodes with attributes
+- Edges with properties
+- Metadata
+
+Default output: `{output_dir}/graph.json`
+
+### CSV
+
+Two CSV files:
+- `entities.csv` - Node list with attributes
+- `relations.csv` - Edge list with properties
+
+Default output: `{output_dir}/csv/`
+
+### SQLite
+
+Relational database with tables:
+- `entities` - Entity nodes
+- `relations` - Edges
+- `attributes` - Entity attributes
+
+Default output: `{output_dir}/graph.sqlite`
+
+## Entity Descriptions
+
+If `entity_descriptions.json` exists (from `sift narrate`), descriptions are included in exports:
+
+```bash
+sift narrate
+sift export graphml
+```
+
+Descriptions appear as node attributes in exported formats.
+
+## Examples
+
+### Export to GraphML
+
+```bash
+sift export graphml
+```
+
+Creates `output/graph.graphml`.
+
+### Export to Gephi format
+
+```bash
+sift export gexf
+```
+
+Creates `output/graph.gexf` for Gephi visualization.
+
+### Export to CSV
+
+```bash
+sift export csv
+```
+
+Creates `output/csv/entities.csv` and `output/csv/relations.csv`.
+
+### Custom export path
+
+```bash
+sift export json --to ./exports/my-graph.json
+```
+
+Exports to specified file path.
+
+### Export from custom output directory
+
+```bash
+sift export graphml --output ./project/results
+```
+
+Exports graph from custom output directory.
+
+### Export to SQLite
+
+```bash
+sift export sqlite --to ./database/knowledge.sqlite
+```
+
+Creates SQLite database at specified path.
+
+## Output Summary
+
+Displays:
+- Export format
+- Entity count
+- Relation count
+- Output file location(s)
+
+### Example Output
+
+```
+Exported! (GRAPHML)
+  Entities: 1,234
+  Relations: 3,456
+  Output: output/graph.graphml
+```
+
+For CSV:
+```
+Exported! (CSV)
+  Entities: 1,234
+  Relations: 3,456
+  Output: output/csv/entities.csv, output/csv/relations.csv
+```
+
+## Common Workflows
+
+### Export for Gephi
+
+```bash
+sift export gexf
+# Open graph.gexf in Gephi
+```
+
+### Export for Python analysis
+
+```bash
+sift export json
+```
+
+```python
+import json
+with open('output/graph.json') as f:
+    graph = json.load(f)
+```
+
+### Export for Neo4j
+
+```bash
+sift export csv
+# Import CSVs using Neo4j's LOAD CSV
+```
+
+### Export for R/igraph
+
+```bash
+sift export graphml
+```
+
+```r
+library(igraph)
+g <- read_graph("output/graph.graphml", format="graphml")
+```
+
+## Error Handling
+
+Exits with error if:
+- No `graph_data.json` found (run `sift build` first)
+- Unsupported format specified
+- Invalid export path
+
+### Format Validation
+
+```bash
+sift export xyz
+# Error: Unsupported format: xyz
+# Supported: json, graphml, gexf, csv, sqlite
+```
+
+## Common Mistake Prevention
+
+If user types `sift export --to json` (meaning format):
+
+```bash
+# Incorrectly interpreted as:
+sift export graphml --to json
+
+# System corrects to:
+sift export json
+```
+
+The CLI detects this pattern and auto-corrects.
+
+## See Also
+
+- [view](/api/cli/view) - Interactive visualization
+- [narrate](/api/cli/narrate) - Generate descriptions for export
+- [build](/api/cli/build) - Build graph for export

@@ -1,0 +1,215 @@
+---
+title: "Epstein/Maxwell Deposition Example"
+description: "Knowledge graph from unsealed Giuffre v. Maxwell court deposition with OCR support"
+---
+
+Complete sift-kg pipeline output from the unsealed Giuffre v. Maxwell court deposition, demonstrating OCR extraction from a scanned PDF and producing a graph of **190 entities** and **387 relations**.
+
+## Overview
+
+This example demonstrates knowledge graph extraction from legal documents with OCR-scanned content, showing how sift-kg handles complex PDFs where text must be extracted via optical character recognition.
+
+<CardGroup cols={2}>
+
+<Card title="View Interactive Graph" icon="diagram-project">
+  Open `examples/epstein/output/graph.html` in your browser
+</Card>
+
+<Card title="Source Document" icon="file-pdf">
+  1 PDF with 36 sections (unsealed court deposition)
+</Card>
+
+</CardGroup>
+
+## Quick Start
+
+```bash
+# View the interactive graph (no installation needed)
+open examples/epstein/output/graph.html     # macOS
+xdg-open examples/epstein/output/graph.html # Linux
+
+# Or use sift's built-in viewer
+sift view -o examples/epstein/output
+```
+
+## Pipeline Output
+
+The `output/` directory contains the complete pipeline results:
+
+```
+epstein/
+├── docs/                          # Source PDF (unsealed court deposition)
+└── output/
+    ├── extractions/               # Per-document entity+relation JSON from LLM
+    ├── graph_data.json            # Knowledge graph (226 entities, 708 relations)
+    ├── merge_proposals.yaml       # Entity merge decisions (16 confirmed merges)
+    ├── relation_review.yaml       # Flagged relations reviewed
+    ├── communities.json           # Detected graph communities
+    ├── entity_descriptions.json   # AI-generated entity descriptions
+    ├── narrative.md               # Prose narrative with entity profiles
+    └── graph.html                 # Interactive pyvis graph viewer
+```
+
+## Pipeline Statistics
+
+| Metric | Value |
+|--------|-------|
+| **Input Document** | 1 PDF, 36 sections |
+| **Document Type** | Unsealed court deposition (OCR-scanned) |
+| **Initial Entities** | 226 entities, 708 relations (after build + postprocess) |
+| **Entity Types** | 93 persons, 56 locations, 24 organizations, 15 events, 2 vehicles |
+| **After Resolution** | 190 entities, 387 relations (16 entity merges confirmed) |
+| **Model Used** | claude-haiku-4-5-20251001 |
+
+## OCR Processing
+
+This example requires the `--ocr` flag during extraction to handle scanned PDFs:
+
+```bash
+sift extract examples/epstein/docs --model openai/gpt-4o-mini -o my-output --ocr
+```
+
+The `--ocr` flag:
+
+- Uses optical character recognition to extract text from scanned images
+- Handles PDFs where text is not digitally encoded
+- Works with low-quality scans, handwritten documents, and mixed content
+- Automatically falls back to OCR when native text extraction fails
+
+<Warning>
+  OCR processing may increase extraction time and cost. Ensure your documents actually require OCR before using this flag.
+</Warning>
+
+## Entity Types
+
+The deposition primarily contains:
+
+- **Persons** (93) — Named individuals mentioned in testimony
+- **Locations** (56) — Places referenced in the deposition
+- **Organizations** (24) — Companies, institutions, and groups
+- **Events** (15) — Specific incidents and occasions
+- **Vehicles** (2) — Named aircraft or vehicles
+
+These entity types are automatically detected based on the content — no custom domain configuration was needed.
+
+## Resolution and Review
+
+This example includes:
+
+### Entity Merges
+
+16 entity merges were confirmed via `sift resolve` and human review:
+
+```yaml
+merges:
+  - primary: "Jeffrey Epstein"
+    duplicates:
+      - "Epstein"
+      - "Mr. Epstein"
+    status: CONFIRMED
+```
+
+### Relation Review
+
+The `relation_review.yaml` file contains flagged relations that were reviewed for accuracy:
+
+```yaml
+relations:
+  - source: "Person A"
+    target: "Location B"
+    relation_type: "VISITED"
+    status: CONFIRMED
+    notes: "Explicitly stated in testimony"
+```
+
+This demonstrates sift-kg's support for reviewing potentially sensitive or ambiguous relationships.
+
+## Key Insights from the Graph
+
+The generated narrative (`narrative.md`) provides:
+
+- **Overview** — High-level summary of testimony content
+- **Entity descriptions** — AI-generated profiles for key persons, locations, and organizations
+- **Community detection** — Clustered subgraphs showing relationship networks
+
+<Note>
+  This example demonstrates technical capabilities for processing legal documents. The content itself is a matter of public record from unsealed court proceedings.
+</Note>
+
+## Re-running the Example
+
+### Option 1: Build from Existing Extractions (Free)
+
+Use the pre-extracted entities — no LLM API calls:
+
+```bash
+pip install sift-kg
+sift build -o examples/epstein/output
+sift view -o examples/epstein/output
+```
+
+### Option 2: Full Pipeline from Scratch
+
+Re-extract entities from the source PDF with OCR:
+
+```bash
+# Extract entities with OCR support
+sift extract examples/epstein/docs \
+  --model openai/gpt-4o-mini \
+  -o my-output \
+  --ocr
+
+# Build the knowledge graph
+sift build -o my-output
+
+# Resolve duplicate entities
+sift resolve -o my-output --model openai/gpt-4o-mini
+
+# Review proposed merges
+sift review -o my-output
+
+# Apply confirmed merges
+sift apply-merges -o my-output
+
+# Generate narrative
+sift narrate -o my-output --model openai/gpt-4o-mini
+
+# View the result
+sift view -o my-output
+```
+
+<Tip>
+  Always use the `--ocr` flag when working with scanned documents, court filings, or any PDF where you cannot select and copy text.
+</Tip>
+
+## Use Cases
+
+This example pattern works well for:
+
+- **Legal discovery** — Map entities and relationships from depositions and court documents
+- **Investigative research** — Extract structured data from public records
+- **Historical archives** — Process scanned documents and old records
+- **Due diligence** — Analyze legal filings and testimony
+
+## Processing Scanned Documents
+
+When working with OCR documents:
+
+1. **Test OCR quality** — Preview extracted text to ensure readability
+2. **Adjust models** — Consider using more powerful models (GPT-4) for complex layouts
+3. **Review carefully** — OCR errors can propagate to entity extraction
+4. **Use resolution** — Merge entities that may have OCR-induced variations
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Explore Other Examples" icon="folder-open" href="/examples/overview">
+  See Transformers and FTX examples
+</Card>
+
+<Card title="OCR Guide" icon="scanner" href="/guides/extraction">
+  Learn more about processing scanned documents
+</Card>
+
+</CardGroup>

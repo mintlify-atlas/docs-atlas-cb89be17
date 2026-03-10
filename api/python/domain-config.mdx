@@ -1,0 +1,521 @@
+---
+title: Domain Configuration
+description: Define custom entity and relation schemas for your domain
+---
+
+## Overview
+
+Domain configurations control what entity types and relation types sift-kg extracts from documents. You can use bundled domains or create custom schemas for your specific use case.
+
+```python
+from sift_kg import load_domain, DomainConfig
+```
+
+---
+
+## load_domain
+
+```python
+from sift_kg import load_domain
+```
+
+Convenience function to load a domain configuration from a YAML file or bundled domain.
+
+### Signature
+
+```python
+def load_domain(
+    domain_path: Path | None = None,
+    bundled_name: str = "schema-free",
+) -> DomainConfig
+```
+
+### Parameters
+
+<ParamField path="domain_path" type="Path | None" default="None">
+  Path to custom domain YAML file. Takes priority over `bundled_name`.
+</ParamField>
+
+<ParamField path="bundled_name" type="str" default="schema-free">
+  Name of bundled domain to load if no `domain_path` given. Available bundled domains:
+  - `"schema-free"`: LLM discovers entity/relation types from data
+  - `"biomedical"`: Medical/clinical entities and relations
+  - `"legal"`: Legal documents and contracts
+  - `"academic"`: Research papers and citations
+</ParamField>
+
+### Returns
+
+<ResponseField name="domain" type="DomainConfig">
+  Validated domain configuration
+</ResponseField>
+
+### Examples
+
+```python
+from pathlib import Path
+from sift_kg import load_domain
+
+# Load bundled schema-free domain
+domain = load_domain(bundled_name="schema-free")
+
+# Load bundled biomedical domain
+domain = load_domain(bundled_name="biomedical")
+
+# Load custom domain
+domain = load_domain(domain_path=Path("./my_domain.yaml"))
+```
+
+---
+
+## DomainConfig
+
+```python
+from sift_kg import DomainConfig
+```
+
+Pydantic model representing a complete domain configuration.
+
+### Fields
+
+<ParamField path="name" type="str" required>
+  Domain name (e.g. `"biomedical"`, `"legal"`)
+</ParamField>
+
+<ParamField path="version" type="str" default="1.0.0">
+  Schema version for tracking changes
+</ParamField>
+
+<ParamField path="description" type="str" default="">
+  Human-readable description of the domain
+</ParamField>
+
+<ParamField path="entity_types" type="dict[str, EntityTypeConfig]" default="{}">
+  Entity type definitions (e.g. `PERSON`, `ORGANIZATION`, `LOCATION`)
+</ParamField>
+
+<ParamField path="relation_types" type="dict[str, RelationTypeConfig]" default="{}">
+  Relation type definitions (e.g. `WORKS_FOR`, `LOCATED_IN`)
+</ParamField>
+
+<ParamField path="system_context" type="str | None" default="None">
+  Optional system context injected into LLM prompts for better extraction
+</ParamField>
+
+<ParamField path="fallback_relation" type="str | None" default="None">
+  Fallback relation type for relationships that don't fit defined types
+</ParamField>
+
+<ParamField path="schema_free" type="bool" default="False">
+  If `True`, LLM discovers entity/relation types from the data instead of using predefined schema
+</ParamField>
+
+### Methods
+
+#### get_entity_type_names
+
+```python
+domain.get_entity_type_names() -> list[str]
+```
+
+Returns list of entity type names.
+
+```python
+entity_types = domain.get_entity_type_names()
+print(f"Entity types: {entity_types}")
+# Output: ['PERSON', 'ORGANIZATION', 'LOCATION']
+```
+
+#### get_relation_type_names
+
+```python
+domain.get_relation_type_names() -> list[str]
+```
+
+Returns list of relation type names.
+
+```python
+relation_types = domain.get_relation_type_names()
+print(f"Relation types: {relation_types}")
+# Output: ['WORKS_FOR', 'LOCATED_IN', 'REPORTS_TO']
+```
+
+#### get_extraction_hints
+
+```python
+domain.get_extraction_hints(relation_type: str) -> list[str]
+```
+
+Get extraction hints for a specific relation type.
+
+```python
+hints = domain.get_extraction_hints("WORKS_FOR")
+print(hints)
+# Output: ['employment relationship', 'job position', 'company affiliation']
+```
+
+---
+
+## EntityTypeConfig
+
+```python
+from sift_kg.domains.models import EntityTypeConfig
+```
+
+Configuration for a single entity type.
+
+### Fields
+
+<ParamField path="description" type="str" default="">
+  Human-readable description (also used as LLM extraction hint)
+</ParamField>
+
+<ParamField path="extraction_hints" type="list[str]" default="[]">
+  Additional hints to guide LLM extraction (e.g. `["full name", "aliases"]`)
+</ParamField>
+
+<ParamField path="canonical_names" type="list[str]" default="[]">
+  Known canonical entity names (e.g. `["United States", "USA", "US"]` for a country)
+</ParamField>
+
+<ParamField path="canonical_fallback_type" type="str | None" default="None">
+  Fallback entity type for canonical name matching
+</ParamField>
+
+---
+
+## RelationTypeConfig
+
+```python
+from sift_kg.domains.models import RelationTypeConfig
+```
+
+Configuration for a single relation type.
+
+### Fields
+
+<ParamField path="description" type="str" default="">
+  Human-readable description (also used as LLM extraction hint)
+</ParamField>
+
+<ParamField path="source_types" type="list[str]" default="[]">
+  Allowed source entity types (empty list = any type)
+</ParamField>
+
+<ParamField path="target_types" type="list[str]" default="[]">
+  Allowed target entity types (empty list = any type)
+</ParamField>
+
+<ParamField path="symmetric" type="bool" default="False">
+  If `True`, relation is symmetric (e.g. `COLLABORATES_WITH`)
+</ParamField>
+
+<ParamField path="extraction_hints" type="list[str]" default="[]">
+  Additional hints to guide LLM extraction
+</ParamField>
+
+<ParamField path="review_required" type="bool" default="False">
+  If `True`, relations of this type are flagged for human review
+</ParamField>
+
+---
+
+## Creating Custom Domains
+
+### YAML Format
+
+Create a domain YAML file:
+
+```yaml my_domain.yaml
+name: corporate
+version: 1.0.0
+description: Corporate hierarchy and business relationships
+
+system_context: |
+  This is a corporate knowledge base focused on organizational structure,
+  employment relationships, and business partnerships.
+
+entity_types:
+  PERSON:
+    description: Employees, executives, board members
+    extraction_hints:
+      - Full name with title
+      - Job position or role
+  
+  ORGANIZATION:
+    description: Companies, departments, business units
+    extraction_hints:
+      - Official company name
+      - Subsidiaries and divisions
+  
+  LOCATION:
+    description: Office locations, headquarters, facilities
+    extraction_hints:
+      - City and country
+      - Street addresses
+
+relation_types:
+  WORKS_FOR:
+    description: Employment relationship
+    source_types: [PERSON]
+    target_types: [ORGANIZATION]
+    symmetric: false
+    extraction_hints:
+      - Job title
+      - Employment start date
+  
+  REPORTS_TO:
+    description: Direct reporting relationship
+    source_types: [PERSON]
+    target_types: [PERSON]
+    symmetric: false
+    review_required: true
+  
+  PARTNERS_WITH:
+    description: Business partnership or collaboration
+    source_types: [ORGANIZATION]
+    target_types: [ORGANIZATION]
+    symmetric: true
+  
+  LOCATED_IN:
+    description: Physical location
+    source_types: [ORGANIZATION, PERSON]
+    target_types: [LOCATION]
+    symmetric: false
+
+fallback_relation: RELATED_TO
+```
+
+### Using Custom Domain
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_extract
+
+# Load custom domain
+domain = load_domain(domain_path=Path("./my_domain.yaml"))
+
+print(f"Domain: {domain.name}")
+print(f"Entity types: {domain.get_entity_type_names()}")
+print(f"Relation types: {domain.get_relation_type_names()}")
+
+# Use in extraction
+extractions = run_extract(
+    doc_dir=Path("./corporate_docs"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+)
+```
+
+---
+
+## Programmatic Domain Creation
+
+```python
+from sift_kg.domains.models import (
+    DomainConfig,
+    EntityTypeConfig,
+    RelationTypeConfig,
+)
+
+# Create domain programmatically
+domain = DomainConfig(
+    name="tech_startup",
+    version="1.0.0",
+    description="Startup ecosystem and funding relationships",
+    system_context="Focus on venture capital, founders, and product launches.",
+    entity_types={
+        "PERSON": EntityTypeConfig(
+            description="Founders, investors, employees",
+            extraction_hints=["Full name", "Role or title"],
+        ),
+        "COMPANY": EntityTypeConfig(
+            description="Startups, investors, acquirers",
+            extraction_hints=["Company name", "Industry sector"],
+        ),
+        "PRODUCT": EntityTypeConfig(
+            description="Software products, platforms, services",
+            extraction_hints=["Product name", "Launch date"],
+        ),
+    },
+    relation_types={
+        "FOUNDED": RelationTypeConfig(
+            description="Founder created company",
+            source_types=["PERSON"],
+            target_types=["COMPANY"],
+            symmetric=False,
+        ),
+        "INVESTED_IN": RelationTypeConfig(
+            description="Investment or funding relationship",
+            source_types=["PERSON", "COMPANY"],
+            target_types=["COMPANY"],
+            symmetric=False,
+            review_required=True,
+        ),
+        "BUILT": RelationTypeConfig(
+            description="Company developed product",
+            source_types=["COMPANY"],
+            target_types=["PRODUCT"],
+            symmetric=False,
+        ),
+    },
+    fallback_relation="RELATED_TO",
+    schema_free=False,
+)
+
+# Use the domain
+from sift_kg import run_extract
+
+extractions = run_extract(
+    doc_dir=Path("./startup_docs"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+)
+```
+
+---
+
+## Schema-Free Mode
+
+For exploratory analysis when you don't know the schema upfront:
+
+```python
+from sift_kg import load_domain, run_extract, run_build
+from pathlib import Path
+
+# Load schema-free domain
+domain = load_domain(bundled_name="schema-free")
+
+print(f"Schema-free mode: {domain.schema_free}")  # True
+
+# Extract with LLM discovering types
+extractions = run_extract(
+    doc_dir=Path("./unknown_docs"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+)
+
+# Build graph (will use discovered schema)
+kg = run_build(
+    output_dir=Path("./output"),
+    domain=domain,
+)
+
+# Check discovered types
+from sift_kg.domains.discovery import load_discovered_domain
+
+discovered = load_discovered_domain(Path("./output/discovered_domain.yaml"))
+if discovered:
+    print(f"Discovered entity types: {discovered.get_entity_type_names()}")
+    print(f"Discovered relation types: {discovered.get_relation_type_names()}")
+```
+
+---
+
+## DomainLoader Class
+
+For advanced use cases, you can use the `DomainLoader` class directly:
+
+```python
+from sift_kg.domains.loader import DomainLoader
+from pathlib import Path
+
+loader = DomainLoader()
+
+# List bundled domains
+print(f"Available bundled domains: {loader.list_bundled()}")
+
+# Load from path (with caching)
+domain1 = loader.load_from_path(Path("./my_domain.yaml"))
+domain2 = loader.load_from_path(Path("./my_domain.yaml"))  # Uses cache
+
+assert domain1 is domain2  # Same object
+
+# Load bundled domain
+domain = loader.load_bundled("biomedical")
+```
+
+---
+
+## Complete Example
+
+```python
+from pathlib import Path
+from sift_kg import (
+    load_domain,
+    run_extract,
+    run_build,
+    run_view,
+)
+from sift_kg.domains.models import (
+    DomainConfig,
+    EntityTypeConfig,
+    RelationTypeConfig,
+)
+
+# Create custom domain
+domain = DomainConfig(
+    name="academic",
+    version="1.0.0",
+    description="Academic research and citations",
+    system_context="Focus on research papers, authors, and citation networks.",
+    entity_types={
+        "AUTHOR": EntityTypeConfig(
+            description="Research paper authors",
+            extraction_hints=["Full name with affiliations"],
+        ),
+        "PAPER": EntityTypeConfig(
+            description="Academic publications",
+            extraction_hints=["Title", "Publication year"],
+        ),
+        "INSTITUTION": EntityTypeConfig(
+            description="Universities and research institutions",
+        ),
+    },
+    relation_types={
+        "AUTHORED": RelationTypeConfig(
+            description="Author wrote paper",
+            source_types=["AUTHOR"],
+            target_types=["PAPER"],
+        ),
+        "CITES": RelationTypeConfig(
+            description="Paper cites another paper",
+            source_types=["PAPER"],
+            target_types=["PAPER"],
+        ),
+        "AFFILIATED_WITH": RelationTypeConfig(
+            description="Author affiliated with institution",
+            source_types=["AUTHOR"],
+            target_types=["INSTITUTION"],
+        ),
+    },
+)
+
+# Run extraction
+extractions = run_extract(
+    doc_dir=Path("./papers"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+    chunk_size=15000,
+)
+
+# Build graph
+kg = run_build(
+    output_dir=Path("./output"),
+    domain=domain,
+)
+
+print(f"Extracted {kg.entity_count} entities and {kg.relation_count} relations")
+print(f"Entity types found: {domain.get_entity_type_names()}")
+print(f"Relation types found: {domain.get_relation_type_names()}")
+
+# Visualize
+run_view(
+    output_dir=Path("./output"),
+    min_confidence=0.7,
+)
+```

@@ -1,80 +1,492 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Build your first knowledge graph in 5 minutes with a complete working example
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide walks you through creating a knowledge graph from a collection of documents. You'll extract entities and relationships, deduplicate them, and explore the results in an interactive browser viewer.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Before you begin, make sure you've [installed sift-kg](/installation) and configured your API key.
 </Note>
+
+## Your First Knowledge Graph
+
+Let's build a knowledge graph from a folder of documents. For this example, we'll assume you have some PDFs or text files in a `./documents/` folder.
+
+<Steps>
+  <Step title="Initialize your project">
+    Create configuration files in your current directory:
+
+    ```bash
+    sift init
+    ```
+
+    This creates:
+    - `.env.example` — Template for your API keys
+    - `sift.yaml` — Project settings
+
+    Copy `.env.example` to `.env` and add your API key:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and set your API key:
+
+    ```bash .env
+    SIFT_OPENAI_API_KEY=sk-proj-your-key-here
+    SIFT_DEFAULT_MODEL=openai/gpt-4o-mini
+    ```
+
+    <Tip>
+      You can override the model for any command with the `--model` flag:
+      ```bash
+      sift extract ./documents/ --model anthropic/claude-haiku-4.5
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Extract entities and relations">
+    Point sift-kg at your documents folder:
+
+    ```bash
+    sift extract ./documents/
+    ```
+
+    This will:
+    - Read all supported files (PDF, DOCX, XLSX, HTML, images, 75+ formats)
+    - Chunk the text into manageable pieces
+    - Use your LLM to extract entities and relationships
+    - Save results to `output/extractions/`
+
+    <CodeGroup>
+
+    ```bash Basic extraction
+    sift extract ./documents/
+    ```
+
+    ```bash With OCR for scanned PDFs
+    sift extract ./documents/ --ocr
+    ```
+
+    ```bash Custom model and budget
+    sift extract ./documents/ --model openai/gpt-4o-mini --max-cost 5.0
+    ```
+
+    ```bash With specific domain
+    sift extract ./documents/ --domain-name osint
+    ```
+
+    </CodeGroup>
+
+    **Example output:**
+    ```
+    Domain: schema-free (schema-free)
+    Model: openai/gpt-4o-mini
+    Documents: 9
+
+    Extraction complete!
+      Documents processed: 9/9
+      Entities extracted: 777
+      Relations extracted: 1201
+      Total cost: $0.18
+      Output: output/extractions
+
+    Next: sift build to construct the knowledge graph
+    ```
+
+    <Note>
+      **Schema-free mode** (the default) runs a schema discovery step — the LLM samples your documents and designs entity/relation types tailored to your corpus. The discovered schema is saved to `output/discovered_domain.yaml` and reused on subsequent runs.
+    </Note>
+  </Step>
+
+  <Step title="Build the knowledge graph">
+    Construct a NetworkX graph from all extractions:
+
+    ```bash
+    sift build
+    ```
+
+    This will:
+    - Load all extraction results
+    - Automatically deduplicate near-identical names (plurals, Unicode variants, case differences)
+    - Fix reversed edge directions when the LLM swaps source/target types
+    - Flag low-confidence relations for review
+    - Save the graph to `output/graph_data.json`
+
+    **Example output:**
+    ```
+    Loading: 9 extraction files
+
+    Graph built!
+      Entities: 432
+      Relations: 1201
+      Flagged for review: 23 relations
+      Output: output/graph_data.json
+
+    Next: sift resolve to find duplicate entities
+    ```
+  </Step>
+
+  <Step title="Find and resolve duplicates">
+    Use the LLM to find entities that likely refer to the same real-world thing:
+
+    ```bash
+    sift resolve
+    ```
+
+    This creates `output/merge_proposals.yaml` with proposed entity merges.
+
+    **Example output:**
+    ```
+    Domain: schema-free
+    Graph: 432 entities, 1201 relations
+
+    Found 58 merge proposals
+      Cost: $0.04
+      Output: output/
+
+    Next: sift review to approve/reject merges and relations
+      Then: sift apply-merges
+    ```
+
+    <Tip>
+      For large graphs (1000+ entities), use `--embeddings` to group similar entities semantically:
+      ```bash
+      sift resolve --embeddings
+      ```
+      This requires `pip install sift-kg[embeddings]`.
+    </Tip>
+  </Step>
+
+  <Step title="Review and approve merges">
+    Review the proposed merges interactively:
+
+    ```bash
+    sift review
+    ```
+
+    This walks through each proposal, showing:
+    - The canonical entity
+    - The proposed merge members
+    - The LLM's confidence and reasoning
+
+    For each proposal, you can:
+    - **Approve** — Mark as `CONFIRMED`
+    - **Reject** — Mark as `REJECTED`
+    - **Skip** — Leave as `DRAFT` to review later
+
+    High-confidence proposals (>0.85) are auto-approved. You can adjust thresholds:
+
+    ```bash
+    sift review --auto-approve 0.90 --auto-reject 0.3
+    ```
+
+    <Tip>
+      **Alternative:** Edit `output/merge_proposals.yaml` directly in your text editor. Change `status: DRAFT` to `CONFIRMED` or `REJECTED`. This is recommended for high-accuracy use cases (genealogy, legal review).
+    </Tip>
+  </Step>
+
+  <Step title="Apply your decisions">
+    Merge the confirmed entities and remove rejected relations:
+
+    ```bash
+    sift apply-merges
+    ```
+
+    **Example output:**
+    ```
+    Graph: 432 entities, 1201 relations
+      Entity merges applied: 45
+      Relations rejected: 8
+
+    Graph updated!
+      Entities: 387
+      Relations: 1193
+
+    Next: sift narrate to generate narrative summary
+    ```
+  </Step>
+
+  <Step title="Generate a narrative summary">
+    Create a prose report with entity profiles and relationship chains:
+
+    ```bash
+    sift narrate
+    ```
+
+    This produces `output/narrative.md` with:
+    - An overview of the graph
+    - Key relationship chains between top entities
+    - A timeline (when dates exist in the data)
+    - Entity profiles grouped by thematic community
+
+    **Example output:**
+    ```
+    Graph: 387 entities, 1193 relations
+    Model: openai/gpt-4o-mini
+
+    Narrative generated!
+      Output: output/narrative.md
+      Cost: $0.06
+
+    Pipeline complete! Review the narrative at:
+      output/narrative.md
+    ```
+  </Step>
+
+  <Step title="Explore in your browser">
+    Open an interactive graph viewer:
+
+    ```bash
+    sift view
+    ```
+
+    This opens `output/graph.html` in your browser with:
+    - **Community regions** — Colored zones grouping related entities
+    - **Hover preview** — See entity names and connections
+    - **Focus mode** — Double-click to isolate neighborhoods
+    - **Search** — Find entities by name
+    - **Filters** — Toggle by type, community, source document, confidence
+    - **Trail breadcrumb** — Track your exploration path
+
+    <CodeGroup>
+
+    ```bash Full graph
+    sift view
+    ```
+
+    ```bash Focus on a specific entity
+    sift view --neighborhood "Sam Bankman-Fried"
+    ```
+
+    ```bash Top entities by degree
+    sift view --top 10
+    ```
+
+    ```bash Filter by confidence
+    sift view --min-confidence 0.8
+    ```
+
+    ```bash Entities from one document
+    sift view --source-doc "ftx_collapse.pdf"
+    ```
+
+    </CodeGroup>
+
+    **Focus Mode Navigation:**
+    - **Double-click** any entity to enter focus mode
+    - **Arrow keys** to step through connections
+    - **Enter/Right** to shift focus to a neighbor
+    - **Backspace/Left** to go back along your path
+    - **Escape** to exit focus mode
+  </Step>
+</Steps>
+
+## Search Entities from the CLI
+
+You can search your knowledge graph directly from the terminal:
+
+```bash
+sift search "Sam Bankman"
+```
+
+**Example output:**
+```
+1 result
+
+  PERSON: Sam Bankman-Fried
+    aka: SBF, Bankman-Fried
+    Connections: 47
+    Sources: ftx_company.txt, sam_bankman_fried.txt, collapse_of_ftx.txt
+```
+
+Show connected entities:
+
+```bash
+sift search "Caroline" -r
+```
+
+Show descriptions (requires running `sift narrate` first):
+
+```bash
+sift search "FTX" -d -t ORGANIZATION
+```
+
+## Export Your Graph
+
+Export to various formats for use in other tools:
+
+<CodeGroup>
+
+```bash GraphML (yEd, Cytoscape)
+sift export graphml
+```
+
+```bash GEXF (Gephi)
+sift export gexf
+```
+
+```bash SQLite (SQL queries, Datasette)
+sift export sqlite
+```
+
+```bash CSV (spreadsheets)
+sift export csv
+```
+
+```bash JSON (custom processing)
+sift export json
+```
+
+</CodeGroup>
+
+Use GraphML/GEXF when you want to control node sizing, edge weighting, custom color schemes, or apply graph algorithms (centrality, community detection) in dedicated tools. SQLite is useful for ad-hoc SQL queries or publishing with [Datasette](https://datasette.io/).
+
+## Complete Pipeline Example
+
+Here's the full workflow in one go:
+
+```bash
+# Initialize project
+sift init
+cp .env.example .env
+# (Edit .env with your API key)
+
+# Extract entities and relations
+sift extract ./documents/
+
+# Build the knowledge graph
+sift build
+
+# Find duplicate entities
+sift resolve
+
+# Review and approve merges interactively
+sift review
+
+# Apply confirmed merges
+sift apply-merges
+
+# Generate narrative summary
+sift narrate
+
+# Explore in browser
+sift view
+
+# Export to GraphML for Gephi/Cytoscape
+sift export graphml
+```
+
+## Real-World Examples
+
+Explore these knowledge graphs generated entirely by sift-kg:
+
+<CardGroup cols={2}>
+  <Card title="Transformers Papers" icon="brain">
+    12 foundational AI papers mapped as a concept graph
+    - **425 entities**
+    - **Cost:** ~$0.72
+    - Domain: `academic`
+  </Card>
+  <Card title="FTX Collapse" icon="building">
+    The FTX cryptocurrency exchange collapse from 9 articles
+    - **431 entities**
+    - Domain: `osint`
+  </Card>
+  <Card title="Epstein Depositions" icon="gavel">
+    Giuffre v. Maxwell depositions extracted from a scanned PDF
+    - **190 entities**
+    - Used OCR for scanned documents
+  </Card>
+</CardGroup>
+
+[Explore all three live](https://juanceresa.github.io/sift-kg/) — no install, no API key required.
+
+## Advanced Configuration
+
+You can configure defaults in `sift.yaml` so you don't need flags on every command:
+
+```yaml sift.yaml
+# Domain — bundled name or path to custom YAML
+domain: osint
+
+# Default LLM model
+model: openai/gpt-4o-mini
+
+# Output directory
+output: output
+
+# Enable OCR for scanned PDFs
+ocr: true
+
+# Extraction settings
+extraction:
+  backend: kreuzberg         # kreuzberg (default, 75+ formats) | pdfplumber
+  ocr_backend: tesseract     # tesseract | easyocr | paddleocr | gcv
+  ocr_language: eng          # ISO 639-3 language code
+```
+
+Settings priority: **CLI flags > env vars > `.env` > `sift.yaml` > defaults**
+
+You can override anything from `sift.yaml` with a flag:
+
+```bash
+sift extract ./documents/ --domain-name academic --model anthropic/claude-haiku-4.5
+```
+
+## Using Bundled Domains
+
+sift-kg ships with specialized domains:
+
+<CardGroup cols={2}>
+  <Card title="schema-free (default)" icon="wand-magic-sparkles">
+    Auto-discovers entity and relation types from your data
+  </Card>
+  <Card title="general" icon="globe">
+    PERSON, ORGANIZATION, LOCATION, EVENT, DOCUMENT
+  </Card>
+  <Card title="osint" icon="user-secret">
+    Investigations: SHELL_COMPANY, FINANCIAL_ACCOUNT, beneficial ownership
+  </Card>
+  <Card title="academic" icon="graduation-cap">
+    Literature review: CONCEPT, THEORY, METHOD, FINDING, PUBLICATION
+  </Card>
+</CardGroup>
+
+List all available domains:
+
+```bash
+sift domains
+```
+
+Use a bundled domain:
+
+```bash
+sift extract ./documents/ --domain-name osint
+```
+
+Or set it in `sift.yaml`:
+
+```yaml sift.yaml
+domain: academic
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/how-it-works">
+    Understand how sift-kg processes documents
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/api/cli/extract">
+    Explore all available commands
+  </Card>
+  <Card title="Domains" icon="sitemap" href="/concepts/domains">
+    Learn about schema-free vs. structured domains
+  </Card>
+  <Card title="Entity Resolution" icon="code-merge" href="/concepts/entity-resolution">
+    Deep dive into the deduplication workflow
+  </Card>
+</CardGroup>

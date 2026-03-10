@@ -1,0 +1,158 @@
+---
+title: "sift extract"
+description: "Extract entities and relations from documents"
+---
+
+## Overview
+
+Extract entities and relations from documents using LLM-based extraction. Processes documents in a directory, chunks them, and uses configured LLM to identify entities and relationships.
+
+## Usage
+
+```bash
+sift extract DIRECTORY [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="directory" type="string" required>
+  Directory containing documents to process. Must be a valid directory path.
+</ParamField>
+
+## Options
+
+### Model & Domain
+
+<ParamField path="--model" type="string">
+  LLM model to use for extraction (e.g., `openai/gpt-4o-mini`, `anthropic/claude-3-5-sonnet-20241022`). Overrides default from config.
+</ParamField>
+
+<ParamField path="--domain" type="string">
+  Path to custom domain YAML file defining entity and relation types.
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name to use (e.g., `general`, `osint`, `academic`). Use `-d` as shorthand.
+</ParamField>
+
+### Performance & Cost
+
+<ParamField path="--chunk-size" type="integer" default="10000">
+  Characters per chunk. Larger chunks = fewer API calls and lower cost, but may reduce extraction quality for very large documents.
+</ParamField>
+
+<ParamField path="--concurrency" type="integer" default="4">
+  Concurrent LLM calls per document. Use `-c` as shorthand. Higher values speed up processing but may hit rate limits.
+</ParamField>
+
+<ParamField path="--rpm" type="integer" default="40">
+  Maximum requests per minute to prevent rate limit waste and throttle API calls.
+</ParamField>
+
+<ParamField path="--max-cost" type="float">
+  Maximum cost budget in USD. Extraction stops when this limit is reached.
+</ParamField>
+
+### Extraction Settings
+
+<ParamField path="--force" type="boolean" default="false">
+  Re-extract all documents, ignoring cached results. Use `-f` as shorthand.
+</ParamField>
+
+<ParamField path="--extractor" type="string" choices="['kreuzberg', 'pdfplumber']">
+  Extraction backend to use. `kreuzberg` supports 75+ formats, `pdfplumber` is PDF-only.
+</ParamField>
+
+<ParamField path="--ocr" type="boolean" default="false">
+  Enable OCR for scanned documents and images.
+</ParamField>
+
+<ParamField path="--ocr-backend" type="string" choices="['tesseract', 'easyocr', 'paddleocr', 'gcv']">
+  OCR backend to use. `gcv` = Google Cloud Vision (requires API key).
+</ParamField>
+
+<ParamField path="--ocr-language" type="string">
+  OCR language code in ISO 639-3 format (e.g., `eng` for English, `fra` for French, `deu` for German).
+</ParamField>
+
+### Output
+
+<ParamField path="--output" type="string">
+  Output directory for extraction results. Use `-o` as shorthand. Defaults to value in config.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging with debug-level output. Use `-v` as shorthand.
+</ParamField>
+
+## Output
+
+Extraction results are saved to `{output_dir}/extractions/` with one JSON file per document.
+
+In schema-free mode, discovered entity and relation types are saved to `{output_dir}/discovered_domain.yaml`.
+
+## Examples
+
+### Basic extraction
+
+```bash
+sift extract ./documents
+```
+
+Extracts entities from all documents in `./documents` using default settings.
+
+### With custom domain
+
+```bash
+sift extract ./documents --domain-name osint
+```
+
+Uses the bundled OSINT domain for specialized entity extraction.
+
+### With OCR for scanned documents
+
+```bash
+sift extract ./scanned_pdfs --ocr --ocr-backend tesseract --ocr-language eng
+```
+
+Enables OCR using Tesseract for English documents.
+
+### Cost-limited extraction
+
+```bash
+sift extract ./documents --max-cost 5.0 --model openai/gpt-4o-mini
+```
+
+Extracts with a $5 budget using GPT-4o-mini.
+
+### High-performance extraction
+
+```bash
+sift extract ./documents -c 8 --chunk-size 15000 --rpm 60
+```
+
+Uses 8 concurrent workers, larger chunks, and higher rate limit.
+
+## Output Summary
+
+After completion, displays:
+- Documents processed
+- Total entities extracted
+- Total relations extracted
+- Total cost in USD
+- Output location
+
+## Next Steps
+
+After extraction, run:
+
+```bash
+sift build
+```
+
+To construct the knowledge graph from extraction results.
+
+## See Also
+
+- [build](/api/cli/build) - Build knowledge graph from extractions
+- [domains](/api/cli/domains) - List available bundled domains

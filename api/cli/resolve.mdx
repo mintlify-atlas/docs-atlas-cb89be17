@@ -1,0 +1,160 @@
+---
+title: "sift resolve"
+description: "Find duplicate entities using LLM-based resolution"
+---
+
+## Overview
+
+Identify duplicate entities in the knowledge graph using LLM-powered entity resolution. Generates merge proposals for likely duplicates and flags variant relationships (e.g., EXTENDS) for review.
+
+## Usage
+
+```bash
+sift resolve [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--model" type="string">
+  LLM model to use for entity resolution (e.g., `openai/gpt-4o-mini`). Overrides default from config.
+</ParamField>
+
+<ParamField path="--domain" type="string">
+  Path to custom domain YAML file. Used for system context in resolution prompts.
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name (e.g., `general`, `osint`). Use `-d` as shorthand.
+</ParamField>
+
+<ParamField path="--concurrency" type="integer" default="4">
+  Number of concurrent LLM calls. Use `-c` as shorthand. Higher values speed up processing.
+</ParamField>
+
+<ParamField path="--rpm" type="integer" default="40">
+  Maximum requests per minute to prevent rate limiting.
+</ParamField>
+
+<ParamField path="--embeddings" type="boolean" default="false">
+  Use semantic clustering with embeddings for candidate selection. Requires: `pip install sift-kg[embeddings]`
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Output directory containing graph data. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Behavior
+
+### Resolution Process
+
+1. **Load Graph** - Reads `graph_data.json` from output directory
+2. **Candidate Selection** - Groups similar entities by name/type
+   - Optional: Uses embeddings for semantic clustering if `--embeddings` enabled
+3. **LLM Resolution** - Asks LLM to judge if candidate pairs are duplicates
+4. **Merge Proposals** - Generates proposals with confidence scores
+5. **Variant Detection** - Identifies variant relationships (e.g., class inheritance)
+
+### Embedding-Based Resolution
+
+When `--embeddings` is enabled:
+- Computes semantic embeddings for entity names and attributes
+- Uses clustering to find similar entities beyond exact name matches
+- More accurate but requires additional dependencies
+
+## Output Files
+
+### merge_proposals.yaml
+
+Contains entity merge proposals with three sections:
+
+- **draft** - Pending review
+- **confirmed** - Approved for merging
+- **rejected** - Declined merges
+
+Each proposal includes:
+- `cluster_id` - Unique identifier
+- `members` - List of entity IDs to merge
+- `canonical_name` - Suggested merged entity name
+- `reasoning` - LLM explanation
+- `confidence` - Score from LLM
+
+Saved to: `{output_dir}/merge_proposals.yaml`
+
+### relation_review.yaml (updated)
+
+Variant relationships detected during resolution are appended to this file. These are relations like EXTENDS or IS_A that indicate entity variants rather than duplicates.
+
+## Examples
+
+### Basic resolution
+
+```bash
+sift resolve
+```
+
+Finds duplicates using default settings.
+
+### With embeddings for better accuracy
+
+```bash
+sift resolve --embeddings
+```
+
+Uses semantic clustering to find similar entities.
+
+### High-performance resolution
+
+```bash
+sift resolve -c 8 --rpm 60 --model openai/gpt-4o-mini
+```
+
+Uses 8 concurrent workers with higher rate limit.
+
+### With custom domain context
+
+```bash
+sift resolve --domain ./legal-domain.yaml
+```
+
+Uses domain-specific context for resolution decisions.
+
+## Output Summary
+
+Displays:
+- Number of merge proposals generated
+- Number of variant relationships found
+- Total cost in USD
+- Output file location
+
+## Next Steps
+
+After resolution:
+
+```bash
+sift review
+```
+
+To interactively review and approve/reject merge proposals, then:
+
+```bash
+sift apply-merges
+```
+
+To apply approved merges to the graph.
+
+## Error Handling
+
+Exits with error if:
+- No `graph_data.json` found (run `sift build` first)
+- API key validation fails
+- Embeddings not installed when `--embeddings` used
+
+## See Also
+
+- [build](/api/cli/build) - Build knowledge graph
+- [review](/api/cli/review) - Review merge proposals
+- [apply-merges](/api/cli/apply-merges) - Apply confirmed merges

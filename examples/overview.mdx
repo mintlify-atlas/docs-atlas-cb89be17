@@ -1,0 +1,103 @@
+---
+title: "Examples Overview"
+description: "Explore complete sift-kg pipelines across different domains and document types"
+---
+
+Sift-kg includes three complete example pipelines that demonstrate the full extraction, building, and narrative generation workflow across different domains and document types.
+
+## Available Examples
+
+<CardGroup cols={3}>
+
+<Card title="Transformers Research" icon="brain" href="/examples/transformers">
+  12 foundational AI papers analyzed into 425 entities
+</Card>
+
+<Card title="FTX Collapse" icon="building-columns" href="/examples/ftx">
+  9 Wikipedia articles about the cryptocurrency exchange collapse
+</Card>
+
+<Card title="Epstein/Maxwell Deposition" icon="scale-balanced" href="/examples/epstein">
+  Court deposition with OCR-scanned PDF processing
+</Card>
+
+</CardGroup>
+
+## What These Examples Show
+
+Each example includes:
+
+- **Complete source documents** — PDFs or text files you can inspect
+- **Full pipeline outputs** — Extractions, graph data, merge proposals, narratives
+- **Interactive graph viewer** — Open `output/graph.html` in any browser
+- **Real cost data** — Actual LLM API costs from running the pipeline
+- **Reproducible commands** — Re-run from existing extractions or start fresh
+
+## Quick Start
+
+All examples can be explored immediately without installation:
+
+```bash
+# Clone the repository
+git clone https://github.com/ARadRareness/sift-kg.git
+cd sift-kg/examples
+
+# Open any example's interactive graph
+open transformers/output/graph.html  # macOS
+xdg-open ftx/output/graph.html       # Linux
+start epstein\output\graph.html      # Windows
+```
+
+## Comparison Table
+
+| Example | Documents | Final Entities | Relations | Domain | Total Cost |
+|---------|-----------|----------------|-----------|--------|-----------|
+| **Transformers** | 12 PDFs | 425 | 1,122 | Academic research | ~$0.72 |
+| **FTX** | 9 text files | 373 | 1,184 | Finance/journalism | ~$0.28 |
+| **Epstein** | 1 PDF (36 sections) | 190 | 387 | Legal/investigative | N/A |
+
+## Running Examples Yourself
+
+Each example supports two workflows:
+
+### Start from Existing Extractions (Free)
+
+No LLM calls required — use the pre-extracted entities:
+
+```bash
+pip install sift-kg
+sift build -o examples/transformers/output
+sift view -o examples/transformers/output
+```
+
+### Re-run Full Pipeline
+
+Extract fresh entities from source documents:
+
+```bash
+sift extract examples/transformers/docs --model openai/gpt-4o-mini -o my-output --domain academic
+sift build -o my-output
+sift resolve -o my-output --model openai/gpt-4o-mini
+sift review -o my-output
+sift apply-merges -o my-output
+sift narrate -o my-output --model openai/gpt-4o-mini
+sift view -o my-output
+```
+
+<Tip>
+  Start with the **Transformers** example if you're working with academic papers, **FTX** for news articles or business analysis, or **Epstein** if you need OCR support for scanned documents.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Install sift-kg" icon="download" href="/quickstart">
+  Get started with your own documents
+</Card>
+
+<Card title="Pipeline Guide" icon="diagram-project" href="/guides/extraction">
+  Understand the full extraction workflow
+</Card>
+
+</CardGroup>

@@ -1,0 +1,348 @@
+---
+title: Extracting Entities and Relations
+description: Complete guide to using sift extract to process documents and extract knowledge
+icon: scan
+---
+
+The `sift extract` command processes documents and uses LLMs to identify entities (people, organizations, concepts, etc.) and relationships between them. This is the first step in building your knowledge graph.
+
+## Quick Start
+
+```bash
+sift extract ./documents
+```
+
+This processes all supported documents in the `./documents` directory using default settings.
+
+## Command Options
+
+### Basic Options
+
+<ParamField path="directory" type="string" required>
+  Directory containing documents to process
+</ParamField>
+
+<ParamField path="--model" type="string">
+  LLM model to use (e.g., `openai/gpt-4o-mini`, `anthropic/claude-3-5-sonnet`). Defaults to `SIFT_DEFAULT_MODEL` from config.
+</ParamField>
+
+<ParamField path="--domain" type="path">
+  Path to custom domain YAML file defining entity and relation types
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Use a bundled domain (e.g., `general`, `osint`, `academic`). Run `sift domains` to see all available domains.
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory for extraction results. Defaults to `output/` in current directory.
+</ParamField>
+
+### Extraction Configuration
+
+<ParamField path="--chunk-size" type="integer" default="10000">
+  Characters per text chunk. Larger chunks = fewer API calls and lower cost, but may reduce extraction quality for long documents.
+</ParamField>
+
+<ParamField path="-c, --concurrency" type="integer" default="4">
+  Number of concurrent LLM API calls per document. Increase for faster processing (watch rate limits).
+</ParamField>
+
+<ParamField path="--rpm" type="integer" default="40">
+  Maximum requests per minute to prevent rate limit errors
+</ParamField>
+
+<ParamField path="-f, --force" type="boolean">
+  Re-extract all documents, ignoring cached results. Normally, sift skips documents that were already processed with the same model, domain, and chunk size.
+</ParamField>
+
+<ParamField path="--max-cost" type="float">
+  Maximum cost budget in USD. Extraction stops when this limit is reached.
+</ParamField>
+
+### Document Processing
+
+<ParamField path="--extractor" type="choice">
+  Document extraction backend:
+  - `kreuzberg` (default): Supports 75+ formats including PDF, DOCX, HTML, Markdown
+  - `pdfplumber`: PDF-only, better for tables
+</ParamField>
+
+<ParamField path="--ocr" type="boolean">
+  Enable OCR for scanned documents and images
+</ParamField>
+
+<ParamField path="--ocr-backend" type="choice">
+  OCR engine when `--ocr` is enabled:
+  - `tesseract` (default): Free, local
+  - `easyocr`: Deep learning-based, good accuracy
+  - `paddleocr`: Fast, multilingual
+  - `gcv`: Google Cloud Vision (requires API key)
+</ParamField>
+
+<ParamField path="--ocr-language" type="string" default="eng">
+  OCR language code (ISO 639-3), e.g., `eng`, `fra`, `deu`, `spa`
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Enable verbose logging for debugging
+</ParamField>
+
+## Examples
+
+### Basic Extraction
+
+```bash
+# Extract with default settings
+sift extract ./documents
+
+# Use a specific model
+sift extract ./documents --model anthropic/claude-3-5-sonnet
+
+# Use a bundled domain
+sift extract ./documents --domain-name osint
+```
+
+### Advanced Configuration
+
+<CodeGroup>
+```bash High-Quality (Slow)
+# Smaller chunks, high concurrency
+sift extract ./documents \
+  --chunk-size 5000 \
+  --concurrency 8 \
+  --model openai/gpt-4o
+```
+
+```bash Cost-Optimized (Fast)
+# Larger chunks, budget limit
+sift extract ./documents \
+  --chunk-size 15000 \
+  --concurrency 10 \
+  --max-cost 5.00
+```
+
+```bash OCR for Scanned PDFs
+# Enable OCR with Google Cloud Vision
+sift extract ./scanned-docs \
+  --ocr \
+  --ocr-backend gcv \
+  --ocr-language eng
+```
+</CodeGroup>
+
+### Working with Custom Domains
+
+```bash
+# Use your own domain definition
+sift extract ./documents --domain ./my-domain.yaml
+
+# Schema-free mode (LLM discovers entity types)
+sift extract ./documents --domain-name schema-free
+```
+
+## Output Structure
+
+Extractions are saved to `output/extractions/` with one JSON file per document:
+
+```
+output/
+├── extractions/
+│   ├── document1.json
+│   ├── document2.json
+│   └── document3.json
+└── discovered_domain.yaml  # Only in schema-free mode
+```
+
+### Extraction File Format
+
+Each extraction file contains:
+
+```json
+{
+  "document_id": "document1",
+  "document_path": "/path/to/document1.pdf",
+  "chunks_processed": 5,
+  "entities": [
+    {
+      "name": "John Smith",
+      "entity_type": "PERSON",
+      "confidence": 0.95,
+      "context": "John Smith was appointed CEO in 2020",
+      "attributes": {
+        "role": "CEO",
+        "aliases": ["J. Smith"]
+      }
+    }
+  ],
+  "relations": [
+    {
+      "source_entity": "John Smith",
+      "target_entity": "Acme Corp",
+      "relation_type": "WORKS_FOR",
+      "confidence": 0.9,
+      "evidence": "John Smith was appointed CEO of Acme Corp"
+    }
+  ],
+  "cost_usd": 0.15,
+  "model_used": "openai/gpt-4o-mini",
+  "domain_name": "general",
+  "chunk_size": 10000,
+  "extracted_at": "2024-03-15T10:30:00Z"
+}
+```
+
+## Incremental Extraction
+
+By default, `sift extract` is **incremental**: it skips documents that were already processed with the same:
+
+- Model
+- Domain
+- Chunk size
+
+This makes it safe to run repeatedly as you add documents to your corpus.
+
+<Note>
+Use `--force` to re-extract all documents, for example after updating your domain definition.
+</Note>
+
+## Schema Discovery
+
+In schema-free mode (`--domain-name schema-free`), the LLM automatically discovers entity and relation types from your documents:
+
+```bash
+sift extract ./documents --domain-name schema-free
+```
+
+The discovered schema is saved to `output/discovered_domain.yaml` and reused for subsequent extractions:
+
+```yaml
+name: schema-free (discovered)
+entity_types:
+  PERSON:
+    description: Individual people
+  ORGANIZATION:
+    description: Companies, institutions, groups
+  CONCEPT:
+    description: Abstract ideas and methodologies
+relation_types:
+  WORKS_FOR:
+    source_types: [PERSON]
+    target_types: [ORGANIZATION]
+  DEVELOPED:
+    source_types: [PERSON, ORGANIZATION]
+    target_types: [CONCEPT]
+```
+
+## Supported Document Formats
+
+### Kreuzberg Extractor (Default)
+
+Supports 75+ formats including:
+- **Documents**: PDF, DOCX, ODT, RTF
+- **Web**: HTML, Markdown, XML
+- **Spreadsheets**: XLSX, CSV, ODS
+- **Presentations**: PPTX, ODP
+- **Code**: Python, Java, JavaScript, etc.
+- **Archives**: ZIP (extracts contents)
+- **Images**: PNG, JPG (with `--ocr`)
+
+### PDFPlumber Extractor
+
+PDF-only, optimized for:
+- Tables and structured data
+- Precise text positioning
+- Form extraction
+
+```bash
+sift extract ./pdfs --extractor pdfplumber
+```
+
+## Cost Estimation
+
+Cost depends on:
+- Document size (total characters)
+- Chunk size (fewer large chunks = lower cost)
+- Model used (GPT-4 > GPT-4o-mini > Claude Haiku)
+
+**Example costs** (using `openai/gpt-4o-mini`):
+- 10-page PDF: ~$0.05-$0.15
+- 100-page PDF: ~$0.50-$1.50
+- 1000 documents (avg 20 pages): ~$100-$300
+
+<Tip>
+Use `--max-cost` to set a budget and prevent runaway costs during experimentation.
+</Tip>
+
+## Performance Tips
+
+<Steps>
+  <Step title="Increase chunk size">
+    Larger chunks (15000-20000) reduce API calls and cost, suitable for most documents.
+  </Step>
+  
+  <Step title="Optimize concurrency">
+    Increase `--concurrency` to 8-10 if your API tier allows it. Watch for rate limit errors.
+  </Step>
+  
+  <Step title="Use faster models">
+    For large corpora, use `openai/gpt-4o-mini` or `anthropic/claude-3-5-haiku` instead of flagship models.
+  </Step>
+  
+  <Step title="Batch processing">
+    Process documents in batches with `--max-cost` limits to track expenses.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "No supported documents found"
+
+The directory contains no files in supported formats. Check:
+- File extensions (must be .pdf, .docx, .md, etc.)
+- Directory path is correct
+- Files aren't empty
+
+### "Rate limit exceeded"
+
+Reduce `--concurrency` or `--rpm`:
+
+```bash
+sift extract ./docs --concurrency 2 --rpm 20
+```
+
+### Empty or poor quality extractions
+
+- Try reducing `--chunk-size` for better context
+- Use a more capable model (`gpt-4o` instead of `gpt-4o-mini`)
+- Check if documents are scanned images (need `--ocr`)
+- Verify domain schema matches your content
+
+### OCR not working
+
+Install OCR dependencies:
+
+```bash
+# Tesseract (macOS)
+brew install tesseract
+
+# Tesseract (Ubuntu)
+sudo apt-get install tesseract-ocr
+
+# EasyOCR/PaddleOCR (Python)
+pip install sift-kg[ocr]
+```
+
+## Next Steps
+
+After extraction completes:
+
+<CardGroup cols={2}>
+  <Card title="Build Graph" icon="diagram-project" href="/guides/building-graphs">
+    Convert extractions into a unified knowledge graph
+  </Card>
+  
+  <Card title="Resolve Entities" icon="object-group" href="/guides/resolution-workflow">
+    Find and merge duplicate entities
+  </Card>
+</CardGroup>

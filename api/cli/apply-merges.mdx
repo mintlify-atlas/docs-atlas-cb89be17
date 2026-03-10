@@ -1,0 +1,163 @@
+---
+title: "sift apply-merges"
+description: "Apply confirmed entity merges and relation rejections"
+---
+
+## Overview
+
+Apply confirmed decisions from the review process to the knowledge graph. Merges approved duplicate entities and removes rejected relations, then updates the graph file.
+
+## Usage
+
+```bash
+sift apply-merges [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--output" type="string">
+  Output directory containing graph and review files. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Behavior
+
+### Application Process
+
+1. **Load Graph** - Reads `graph_data.json`
+2. **Apply Entity Merges** - Processes confirmed proposals from `merge_proposals.yaml`
+   - Merges entity attributes
+   - Redirects all relations to canonical entity
+   - Removes duplicate entities
+3. **Apply Relation Rejections** - Removes rejected relations from `relation_review.yaml`
+4. **Save Graph** - Updates `graph_data.json` with changes
+
+### Entity Merge Logic
+
+When merging entities:
+- **Canonical Name** - Uses name from merge proposal
+- **Attributes** - Combines attributes from all merged entities
+- **Relations** - Redirects all incoming/outgoing relations to canonical entity
+- **Source Documents** - Preserves references from all merged entities
+
+### Relation Rejection
+
+Removes relations marked as `status: rejected` in `relation_review.yaml`.
+
+## Input Files
+
+### merge_proposals.yaml
+
+Reads the `confirmed` section:
+
+```yaml
+proposals:
+  confirmed:
+    - cluster_id: "cluster_001"
+      members: ["entity_1", "entity_2"]
+      canonical_name: "Merged Entity"
+```
+
+### relation_review.yaml
+
+Reads relations with `status: rejected`:
+
+```yaml
+relations:
+  - source_id: "entity_123"
+    target_id: "entity_456"
+    relation_type: "WORKS_WITH"
+    status: rejected
+```
+
+## Output
+
+Updates `graph_data.json` with:
+- Merged entities
+- Removed duplicate entities
+- Removed rejected relations
+- Updated entity and relation counts
+
+## Examples
+
+### Apply all confirmed decisions
+
+```bash
+sift apply-merges
+```
+
+Applies all confirmed merges and rejections from review files.
+
+### Apply from custom directory
+
+```bash
+sift apply-merges --output ./project/output
+```
+
+Applies decisions from specified output directory.
+
+### With verbose logging
+
+```bash
+sift apply-merges -v
+```
+
+Shows detailed merge operations.
+
+## Output Summary
+
+Displays:
+- Number of entity merges applied
+- Number of relations rejected
+- Final entity count
+- Final relation count
+- Graph file location
+
+### No Changes
+
+If no confirmed merges or rejections exist:
+
+```
+No changes to apply.
+Edit merge_proposals.yaml or relation_review.yaml first.
+```
+
+## Next Steps
+
+After applying merges:
+
+```bash
+sift narrate
+```
+
+To generate a narrative summary of the updated knowledge graph.
+
+## Iterative Workflow
+
+The review-apply cycle can be repeated:
+
+1. `sift resolve` - Find more duplicates
+2. `sift review` - Review new proposals
+3. `sift apply-merges` - Apply decisions
+4. Repeat as needed
+
+## Error Handling
+
+Exits with error if:
+- No `graph_data.json` found (run `sift build` first)
+- Review files are malformed
+
+## Rollback
+
+To undo applied merges:
+- Restore `graph_data.json` from backup
+- Or rebuild graph from extractions: `sift build`
+
+## See Also
+
+- [review](/api/cli/review) - Review merge proposals
+- [resolve](/api/cli/resolve) - Find duplicate entities
+- [narrate](/api/cli/narrate) - Generate narrative summary

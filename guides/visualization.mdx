@@ -1,0 +1,459 @@
+---
+title: Graph Visualization and Search
+description: Interactive exploration of knowledge graphs with filtering and search
+icon: eye
+---
+
+sift-kg provides two ways to explore your knowledge graph: **interactive visualization** with `sift view` and **command-line search** with `sift search`.
+
+## Interactive Visualization
+
+```bash
+sift view
+```
+
+Generates an interactive HTML visualization and opens it in your browser.
+
+### Command Options
+
+<ParamField path="-o, --output" type="path">
+  Output directory containing `graph_data.json`
+</ParamField>
+
+<ParamField path="--to" type="path">
+  Custom path for the HTML file (defaults to `output/graph.html`)
+</ParamField>
+
+<ParamField path="--no-open" type="boolean">
+  Generate HTML but don't open browser
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Verbose logging
+</ParamField>
+
+### Filtering Options
+
+<ParamField path="--top" type="integer">
+  Show only the top N entities by connection count (and their direct neighbors)
+</ParamField>
+
+<ParamField path="--min-confidence" type="float">
+  Hide entities and relations below this confidence threshold (0.0-1.0)
+</ParamField>
+
+<ParamField path="--source-doc" type="string">
+  Show only entities from a specific document
+</ParamField>
+
+<ParamField path="--neighborhood" type="string">
+  Center view on a specific entity and show N-hop neighborhood
+</ParamField>
+
+<ParamField path="--depth" type="integer" default="1">
+  Number of hops for neighborhood view (use with `--neighborhood`)
+</ParamField>
+
+<ParamField path="--community" type="string">
+  Focus on a specific community cluster (e.g., "Community 1")
+</ParamField>
+
+## Visualization Examples
+
+### Basic View
+
+```bash
+# Full graph
+sift view
+
+# Custom output location
+sift view --to ./reports/knowledge-graph.html
+
+# Generate without opening
+sift view --no-open
+```
+
+### Filtered Views
+
+<CodeGroup>
+```bash Top Entities
+# Show 50 most connected entities
+sift view --top 50
+
+# Top 20 entities, high confidence only
+sift view --top 20 --min-confidence 0.8
+```
+
+```bash Document-Specific
+# Entities from a single document
+sift view --source-doc "annual-report-2023.pdf"
+```
+
+```bash Entity Neighborhood
+# 1-hop neighborhood of John Smith
+sift view --neighborhood "John Smith"
+
+# 2-hop neighborhood (friends-of-friends)
+sift view --neighborhood "person:john_smith" --depth 2
+
+# Neighborhood with high confidence only
+sift view --neighborhood "Acme Corp" --depth 1 --min-confidence 0.7
+```
+
+```bash Community Focus
+# View a specific community cluster
+sift view --community "Community 1"
+```
+</CodeGroup>
+
+## Interactive Features
+
+The visualization includes a rich sidebar with:
+
+### Search
+
+Type to find entities by name (case-insensitive, fuzzy matching).
+
+### Entity Type Toggles
+
+Show/hide entity types:
+- Click checkbox to toggle visibility
+- Click color picker to change type color
+- All changes update graph in real-time
+
+### Relation Type Toggles
+
+Control which relations are displayed:
+- Show/hide by relation type
+- Relation count shown for each type
+- `MENTIONED_IN` hidden by default (metadata)
+
+### Community Filters
+
+Toggle visibility by community cluster:
+- Communities auto-detected using Louvain algorithm
+- Border colors indicate community membership
+- Filter to single community for focused analysis
+
+### Detail Panel
+
+Click any node to see:
+- Entity name and type
+- All attributes
+- Aliases
+- Source documents
+- Generated description (if `sift narrate` was run)
+- All incoming/outgoing relations
+
+Click any edge to see:
+- Relation type
+- Confidence score
+- Evidence text
+- Support count (how many times extracted)
+- Support documents
+
+### Dynamic Filters
+
+**Degree Filter**: Hide low-connectivity entities
+```
+Min connections: [slider] 0 ━━━●━━━ 10
+```
+
+**Confidence Filter**: Show only high-quality extractions
+```
+Min confidence: [slider] 0 ━━━━━●━ 1.0
+```
+
+**Source Document Count**: Entities mentioned in multiple docs
+```
+Min sources: [slider] 1 ━●━━━━━ 5
+```
+
+**Source Document Selector**: Dropdown to filter by specific document
+
+### Physics Controls
+
+Adjust graph layout:
+- Pause/resume physics simulation
+- Freeze positions after stabilization
+- Reset zoom and positions
+
+## Visualization Colors
+
+### Entity Colors (by Type)
+
+Predefined semantic colors for common types:
+- **PERSON**: Blue
+- **ORGANIZATION**: Green  
+- **LOCATION**: Purple
+- **EVENT**: Orange
+- **DOCUMENT**: Gray
+
+Other types auto-assigned from palette with maximum hue separation.
+
+### Relation Colors (by Type)
+
+Semantic colors for common relations:
+- **EXTENDS**: Purple (inheritance)
+- **SUPPORTS**: Green (evidence for)
+- **CONTRADICTS**: Red (evidence against)
+- **USES_METHOD**: Blue (methodology)
+- **MENTIONED_IN**: Dark gray (low emphasis)
+
+Other types auto-assigned from edge color palette.
+
+### Community Colors
+
+Community border colors use golden angle spacing for maximum visual separation.
+
+## Search Command
+
+```bash
+sift search "John Smith"
+```
+
+Command-line search for entities by name or alias.
+
+### Command Options
+
+<ParamField path="query" type="string" required>
+  Search term (matches entity names and aliases, case-insensitive)
+</ParamField>
+
+<ParamField path="-r, --relations" type="boolean">
+  Show connected entities and their relations
+</ParamField>
+
+<ParamField path="-d, --description" type="boolean">
+  Show entity description (requires `sift narrate` to have been run)
+</ParamField>
+
+<ParamField path="-t, --type" type="string">
+  Filter results by entity type (e.g., PERSON, ORGANIZATION)
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory containing `graph_data.json`
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Show all relations (default limits to 10)
+</ParamField>
+
+## Search Examples
+
+<CodeGroup>
+```bash Basic Search
+# Find entities matching "Smith"
+sift search Smith
+
+# Case-insensitive, searches names and aliases
+sift search "acme corp"
+```
+
+```bash With Relations
+# Show who John Smith is connected to
+sift search "John Smith" --relations
+
+# All relations (not just first 10)
+sift search "John Smith" --relations --verbose
+```
+
+```bash Type-Filtered
+# Only PERSON entities named Smith
+sift search Smith --type PERSON
+
+# Only ORGANIZATION entities
+sift search Acme --type ORGANIZATION
+```
+
+```bash With Descriptions
+# Show generated entity descriptions
+sift search "John Smith" --description --relations
+```
+</CodeGroup>
+
+### Example Output
+
+```
+$ sift search "John Smith" --relations
+
+3 results
+
+  PERSON: John Smith
+    aka: J. Smith, Dr. Smith
+    Connections: 15
+    Sources: document1, document2, document5
+    → WORKS_FOR → Acme Corporation
+    → FOUNDED → SmithCo Industries
+    → COLLABORATED_WITH → Jane Doe
+    ← SUPERVISED → Bob Johnson
+    ← HIRED → Acme Corporation
+    ... 10 more (use --verbose to show all)
+
+  PERSON: Bradley Smith
+    Connections: 3
+    Sources: document7
+    → ATTENDED → Stanford University
+```
+
+## Use Cases
+
+<Accordion title="Investigative Research">
+  **Scenario**: Finding connections between people and organizations
+  
+  ```bash
+  # Find all mentions of a person
+  sift search "John Doe" --relations --description
+  
+  # View their network
+  sift view --neighborhood "John Doe" --depth 2
+  
+  # Focus on high-confidence connections only
+  sift view --neighborhood "John Doe" --min-confidence 0.8
+  ```
+</Accordion>
+
+<Accordion title="Document-Specific Analysis">
+  **Scenario**: Analyzing what was extracted from one document
+  
+  ```bash
+  # View entities from specific report
+  sift view --source-doc "annual-report-2023.pdf"
+  
+  # Search within that document
+  sift search "revenue" --type CONCEPT
+  ```
+</Accordion>
+
+<Accordion title="Community Detection">
+  **Scenario**: Finding clusters of related entities
+  
+  ```bash
+  # Generate view with communities
+  sift view
+  
+  # In browser: check community colors on entity borders
+  # Export communities.json for external analysis
+  
+  # Focus on specific community
+  sift view --community "Community 3"
+  ```
+</Accordion>
+
+<Accordion title="Quality Assurance">
+  **Scenario**: Checking extraction quality
+  
+  ```bash
+  # View low-confidence entities (may need review)
+  sift view --min-confidence 0.5
+  
+  # Find isolated entities (no relations)
+  sift view --top 200  # Then filter by degree = 0 in sidebar
+  
+  # Check entities with few source documents
+  # In sidebar: set "Min source docs" to 1
+  ```
+</Accordion>
+
+## Performance Tips
+
+<Steps>
+  <Step title="Filter Large Graphs">
+    For graphs with >1000 entities, use filters to reduce visual complexity:
+    ```bash
+    sift view --top 100
+    sift view --min-confidence 0.7
+    ```
+  </Step>
+  
+  <Step title="Use Neighborhoods">
+    Focus on specific areas instead of viewing entire graph:
+    ```bash
+    sift view --neighborhood "key-entity" --depth 2
+    ```
+  </Step>
+  
+  <Step title="Hide Metadata Relations">
+    `MENTIONED_IN` edges clutter large graphs. They're hidden by default,
+    but can be shown via the sidebar if needed.
+  </Step>
+  
+  <Step title="Freeze Physics">
+    In the visualization, pause physics after initial layout stabilizes
+    to improve browser performance.
+  </Step>
+</Steps>
+
+## Saving and Sharing
+
+The generated HTML is **fully self-contained**:
+
+```bash
+# Generate static HTML
+sift view --to ./report.html --no-open
+
+# Share via email, upload to web server, or include in reports
+# No sift-kg installation needed to view
+```
+
+All JavaScript, CSS, and graph data embedded in a single file.
+
+## Troubleshooting
+
+### Blank or empty visualization
+
+**Cause**: All entities filtered out
+
+**Solution**: Check filters and graph size:
+```bash
+sift view --verbose  # Shows entity/relation counts after filtering
+```
+
+Relax filters:
+```bash
+sift view --min-confidence 0.0 --top 1000
+```
+
+### "Graph not found"
+
+Run `sift build` first to create `graph_data.json`.
+
+### Slow or laggy browser performance
+
+**For large graphs (>500 entities)**:
+- Use filtering: `--top 200 --min-confidence 0.7`
+- Pause physics after stabilization
+- Use neighborhood view instead of full graph
+- Close detail panel when not needed
+
+### Search returns no results
+
+- Check spelling (search is case-insensitive but must match name/alias)
+- Try partial terms: `sift search Smith` instead of `sift search "John Smith"`
+- Check entity type filter: `--type` may be excluding results
+- Verify graph contains entities: `sift search "" --verbose`
+
+### Communities not showing
+
+Communities auto-detected on first `sift view`. If missing:
+
+```bash
+# Rebuild communities
+sift narrate --communities-only  # Fast, ~$0.01
+
+# Or regenerate full view
+sift view
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Export Data" icon="download" href="/guides/export">
+    Export graphs for external analysis tools
+  </Card>
+  
+  <Card title="Generate Narratives" icon="book">
+    Create AI-generated summaries of your knowledge graph
+  </Card>
+</CardGroup>

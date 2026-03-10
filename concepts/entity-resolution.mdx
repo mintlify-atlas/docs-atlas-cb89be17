@@ -1,0 +1,989 @@
+---
+title: Entity Resolution
+description: How sift-kg identifies and merges duplicate entities across documents
+---
+
+## The Deduplication Challenge
+
+When extracting entities from multiple documents, the same real-world entity often appears under different names:
+
+<CodeGroup>
+
+```text Person Name Variations
+Mr. Edwards
+Bradley Edwards
+Detective Edwards
+Brad Edwards
+edwards
+```
+
+```text Organization Variations
+Acme Corp
+Acme Corporation
+ACME Corp.
+Acme
+```
+
+```text Concept Variations
+Transformer architecture
+Transformer
+Transformers
+the Transformer model
+```
+
+</CodeGroup>
+
+Without deduplication, your knowledge graph contains duplicate nodes for the same entity, fragmenting relationships and making analysis difficult.
+
+sift-kg solves this with a **4-layer deduplication approach** that combines deterministic rules, semantic similarity, LLM reasoning, and human review.
+
+## Layer 1: Automatic Pre-Deduplication
+
+Before entities become graph nodes, sift-kg runs automatic deduplication during `sift build` to catch obvious duplicates.
+
+### Phase 1: Deterministic Merging
+
+Entities are normalized and grouped by:
+
+**Unicode Normalization**
+```python
+"café" → "cafe"
+"naïve" → "naive"
+```
+
+**Singularization**
+```python
+"researchers" → "researcher"
+"companies" → "company"
+"analyses" → "analysis"
+```
+
+**Title Stripping**
+
+Common title prefixes are removed:
+
+```python
+"Dr. Alice Smith" → "Alice Smith"
+"Detective Joe Recarey" → "Joe Recarey"
+"Mr. Edwards" → "Edwards"
+"Professor Zhang" → "Zhang"
+```
+
+Full list of recognized titles:
+```python
+[
+  "detective", "det.", "officer", "sergeant", "sgt.",
+  "lieutenant", "lt.", "captain", "chief", "deputy",
+  "dr.", "doctor", "prof.", "professor",
+  "mr.", "mrs.", "ms.", "miss",
+  "judge", "justice", "senator", "representative",
+  "attorney", "counsel", "reverend", "father",
+  # ... and more
+]
+```
+
+See `/home/daytona/workspace/source/src/sift_kg/graph/prededup.py:30` for the complete list.
+
+**Canonical Selection**
+
+When multiple variants normalize to the same form, the canonical is chosen by:
+
+1. **Frequency**: Most common variant wins
+2. **Length**: Longest variant (likely more complete)
+3. **Alphabetical**: First alphabetically (tiebreaker)
+
+Example:
+
+```python
+Variants: ["Mr. Edwards", "Bradley Edwards", "Bradley Edwards", "edwards"]
+Frequencies: {"Bradley Edwards": 2, "Mr. Edwards": 1, "edwards": 1}
+Canonical: "Bradley Edwards"  # Highest frequency
+```
+
+Implementation at `/home/daytona/workspace/source/src/sift_kg/graph/prededup.py:177`:
+
+```python
+def _pick_canonical(names: list[str]) -> str:
+    counts = Counter(names)
+    max_count = max(counts.values())
+    most_frequent = [n for n, c in counts.items() if c == max_count]
+    
+    if len(most_frequent) == 1:
+        return most_frequent[0]
+    
+    # Tiebreak: longest name
+    max_len = max(len(n) for n in most_frequent)
+    longest = [n for n in most_frequent if len(n) == max_len]
+    
+    return sorted(longest)[0]  # Alphabetical tiebreaker
+```
+
+### Phase 2: Fuzzy Semantic Matching
+
+After deterministic grouping, remaining unique forms are compared using **SemHash** semantic similarity.
+
+**How SemHash Works**
+
+1. Convert entity names to embeddings using Model2Vec (lightweight, no GPU needed)
+2. Compute pairwise cosine similarities
+3. Merge entities with similarity ≥ 0.95 threshold
+
+**What It Catches**
+
+```python
+# Typos and misspellings
+"Recarey" ↔ "Recary" (similarity: 0.96)
+
+# Abbreviations
+"International Business Machines" ↔ "IBM" (similarity: 0.97)
+
+# Transliteration variants
+"Muammar Gaddafi" ↔ "Muammar Qaddafi" (similarity: 0.98)
+```
+
+**Implementation**
+
+From `/home/daytona/workspace/source/src/sift_kg/graph/prededup.py:153`:
+
+```python
+def _semhash_cluster(
+    normalized_names: list[str],
+    norm_to_canonical: dict[str, str],
+    threshold: float,
+) -> dict[str, str]:
+    """Use SemHash to find fuzzy near-duplicates.
+    
+    Returns mapping from variant → canonical normalized form.
+    """
+    records = [{"text": name} for name in normalized_names]
+    sh = SemHash.from_records(records=records, columns=["text"])
+    result = sh.self_deduplicate(threshold=threshold)
+    
+    merges: dict[str, str] = {}
+    for item in result.selected_with_duplicates:
+        kept_name = item.record["text"]
+        for dup_record, _score in item.duplicates:
+            dup_name = dup_record["text"]
+            if dup_name != kept_name:
+                merges[dup_name] = kept_name
+    
+    return merges
+```
+
+### Results
+
+Pre-dedup typically reduces entity counts by 10-30%:
+
+```
+Pre-dedup: 1,247 entities → 912 unique (335 merged)
+```
+
+Saved entities don't waste LLM tokens in the next resolution stage.
+
+## Layer 2: LLM-Based Entity Resolution
+
+After pre-dedup, `sift resolve` finds duplicates that require semantic understanding.
+
+### Why LLM Resolution?
+
+Pre-dedup catches mechanical duplicates. LLM resolution catches:
+
+- **Partial names**: "Joseph Recarey" vs "Joe Recarey"
+- **Nicknames**: "William" vs "Bill"
+- **Context-dependent equivalence**: "the Transformer architecture" vs "Transformers"
+- **Professional vs personal names**: "Dr. Alice Smith" vs "Alice"
+
+### Batching Strategy
+
+Entities are processed in type-specific batches to improve accuracy.
+
+**Sorting**
+
+Entities are sorted before batching:
+
+- **PERSON entities**: Sorted by surname so name variants cluster
+  ```python
+  "Detective Joe Recarey" → sort key: "recarey detective joe recarey"
+  "Joseph Recarey" → sort key: "recarey joseph recarey"
+  # These appear adjacent in sorted list
+  ```
+
+- **Other types**: Alphabetically by name
+
+Implementation at `/home/daytona/workspace/source/src/sift_kg/resolve/resolver.py:40`:
+
+```python
+def _person_sort_key(name: str) -> str:
+    """Sort PERSON entities by surname.
+    
+    'Mr. Edwards', 'Bradley Edwards', 'Edwards' all sort under 'edwards'.
+    """
+    normalized = unidecode(name).lower().strip()
+    
+    # Strip title prefixes
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _TITLE_PREFIXES:
+            if normalized.startswith(prefix + " "):
+                normalized = normalized[len(prefix) + 1:].strip()
+                changed = True
+                break
+    
+    # Sort by last word (surname), then full name
+    parts = normalized.split()
+    surname = parts[-1] if parts else normalized
+    return f"{surname} {normalized}"
+```
+
+**Overlapping Windows**
+
+Large entity sets are split into batches with overlap:
+
+- **Batch size**: 100 entities max
+- **Overlap**: 20 entities between consecutive batches
+
+This prevents duplicates from being missed at batch boundaries.
+
+```
+Batch 1: entities[0:100]
+Batch 2: entities[80:180]  # 20-entity overlap with batch 1
+Batch 3: entities[160:260] # 20-entity overlap with batch 2
+```
+
+### LLM Resolution Prompt
+
+For each batch, the LLM receives entity data:
+
+```json
+[
+  {
+    "id": "person:joe_recarey",
+    "name": "Detective Joe Recarey",
+    "aliases": ["Joe Recarey", "Joseph Recarey"]
+  },
+  {
+    "id": "person:joseph_recarey",
+    "name": "Joseph Recarey",
+    "aliases": []
+  },
+  {
+    "id": "person:bradley_edwards",
+    "name": "Bradley Edwards",
+    "aliases": ["Brad Edwards"]
+  }
+]
+```
+
+The prompt asks the LLM to identify:
+
+1. **Duplicates**: Same entity with different names → merge proposals
+2. **Variants**: Parent-child relationships → EXTENDS relations
+
+From `/home/daytona/workspace/source/src/sift_kg/resolve/resolver.py:393`:
+
+```
+Analyze these PERSON entities and identify:
+1. Duplicates — entities that refer to the exact same thing (merge them)
+2. Variants — entities that are a subtype, version, or specific implementation
+   of a parent entity (link them with EXTENDS)
+
+Look for:
+- Name variations (abbreviations, nicknames, full vs common names, misspellings)
+- Title/honorific prefixes that don't change identity (Dr., Mr., Detective, etc.)
+- First name vs nickname variants
+- Aliases — if an entity's aliases list contains a name matching another entity,
+  they are very likely the same
+- Same person referenced differently across documents
+- DO NOT merge genuinely different people (father and son, unrelated people
+  sharing a surname)
+
+IMPORTANT: If entity B is a variant/subtype/version of entity A (not the same
+thing, but derived from it), put it in "variants" NOT "groups". Only true
+duplicates go in "groups".
+
+Return valid JSON only:
+{
+  "groups": [
+    {
+      "canonical_id": "id of the best/most complete entity",
+      "canonical_name": "the preferred name",
+      "member_ids": ["id1", "id2"],
+      "confidence": 0.0-1.0,
+      "reason": "brief explanation"
+    }
+  ],
+  "variants": [
+    {
+      "parent_id": "id of the parent/base entity",
+      "child_id": "id of the variant/subtype",
+      "confidence": 0.0-1.0,
+      "reason": "brief explanation"
+    }
+  ]
+}
+```
+
+### Domain Context
+
+When a domain provides `system_context`, it's prepended to the prompt:
+
+```yaml
+system_context: |
+  You are analyzing academic papers to map the intellectual landscape.
+  Distinguish carefully:
+  - "Transformer" as an architecture is a THEORY
+  - "GPT-2" the trained model is a SYSTEM
+  These should NOT be merged — GPT-2 EXTENDS Transformer
+```
+
+This helps the LLM make domain-appropriate decisions.
+
+### Cross-Type Deduplication
+
+After per-type resolution, sift-kg finds entities with **identical names but different types**:
+
+```
+CONCEPT: "reading comprehension"
+PHENOMENON: "reading comprehension"
+```
+
+These are merged automatically (no LLM call needed):
+
+- **Canonical type**: The one with more connections (higher degree)
+- **Reason**: "Same name across types (CONCEPT vs PHENOMENON). Relations will be combined."
+
+From `/home/daytona/workspace/source/src/sift_kg/resolve/resolver.py:190`:
+
+```python
+def _find_cross_type_duplicates(kg: KnowledgeGraph) -> list[MergeProposal]:
+    # Group by normalized name
+    name_groups: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+    for nid, data in kg.graph.nodes(data=True):
+        entity_type = data.get("entity_type", "")
+        if entity_type in SKIP_TYPES:
+            continue
+        name = data.get("name", "").strip().lower()
+        degree = kg.graph.degree(nid)
+        name_groups[name].append((nid, entity_type, degree))
+    
+    proposals = []
+    for _name, group in name_groups.items():
+        types = {t for _, t, _ in group}
+        if len(types) < 2:  # Only one type, no cross-type dup
+            continue
+        
+        # Canonical = highest degree
+        group.sort(key=lambda x: x[2], reverse=True)
+        canonical_id, canonical_type, _ = group[0]
+        # Create merge proposal...
+```
+
+### Output
+
+`sift resolve` produces:
+
+**merge_proposals.yaml**
+
+```yaml
+proposals:
+  - canonical_id: person:bradley_edwards
+    canonical_name: Bradley Edwards
+    entity_type: PERSON
+    status: DRAFT
+    members:
+      - id: person:mr_edwards
+        name: Mr. Edwards
+        confidence: 0.92
+      - id: person:detective_edwards
+        name: Detective Edwards
+        confidence: 0.88
+    reason: "Same person with different titles"
+  
+  - canonical_id: theory:transformer
+    canonical_name: Transformer
+    entity_type: THEORY
+    status: DRAFT
+    members:
+      - id: theory:transformer_architecture
+        name: Transformer architecture
+        confidence: 0.95
+      - id: theory:transformers
+        name: Transformers
+        confidence: 0.90
+    reason: "Same architecture with naming variations"
+```
+
+**relation_review.yaml** (updated with variants)
+
+```yaml
+relations:
+  - source_id: system:gpt_2
+    source_name: GPT-2
+    target_id: theory:transformer
+    target_name: Transformer
+    relation_type: EXTENDS
+    confidence: 0.95
+    status: DRAFT
+    flag_reason: "Variant relationship discovered during entity resolution"
+    evidence: "GPT-2 implements the Transformer architecture"
+```
+
+## Layer 3: Human Review
+
+LLMs make mistakes. Human review validates proposals before applying changes.
+
+### Interactive Review Process
+
+The `sift review` command presents each proposal:
+
+```
+┌─ Merge 1/23 ─────────────────────────────────────┐
+│ Merge into: Bradley Edwards (person:bradley_ed…) │
+│ Type: PERSON                                      │
+│                                                   │
+│ Members to merge                                  │
+│   Member              ID                 Confid…  │
+│   Mr. Edwards         person:mr_edwards     92%   │
+│   Detective Edwards   person:detective_e…   88%   │
+│                                                   │
+│ Reason: Same person with different titles         │
+└───────────────────────────────────────────────────┘
+  [a]pprove  [r]eject  [s]kip  [q]uit →
+```
+
+User decisions:
+
+- **Approve**: Status changes to `CONFIRMED`, will be applied
+- **Reject**: Status changes to `REJECTED`, ignored
+- **Skip**: Stays `DRAFT`, can review later
+- **Quit**: Saves progress, remaining proposals stay `DRAFT`
+
+Implementation at `/home/daytona/workspace/source/src/sift_kg/resolve/reviewer.py:39`.
+
+### Auto-Approval
+
+High-confidence proposals can be auto-confirmed:
+
+```bash
+sift review --auto-approve 0.85
+```
+
+All proposals where **every member** has confidence ≥ 0.85 are automatically confirmed without interactive review.
+
+```
+Auto-approved 15 proposals (all members ≥ 85% confidence)
+```
+
+Remaining proposals are reviewed interactively.
+
+### Relation Review
+
+Flagged relations are also reviewed:
+
+```
+┌─ Relation 1/12 ──────────────────────────────────┐
+│ Alice Smith  —[BENEFICIAL_OWNER_OF]→  Acme Corp │
+│                                                   │
+│ Low confidence │ confidence: 62% │ from: doc.pdf │
+└───────────────────────────────────────────────────┘
+  Evidence: Alice listed as beneficial owner in filing
+  [a]pprove  [r]eject  [s]kip  [q]uit →
+```
+
+Auto-reject low-confidence relations:
+
+```bash
+sift review --auto-reject 0.5
+```
+
+Relations with confidence < 0.5 are automatically rejected.
+
+### Review Files After Changes
+
+After review, files are updated in place:
+
+**merge_proposals.yaml**
+
+```yaml
+proposals:
+  - canonical_id: person:bradley_edwards
+    status: CONFIRMED  # Changed from DRAFT
+    # ... rest unchanged
+  
+  - canonical_id: theory:transformer
+    status: REJECTED  # User rejected this merge
+    # ...
+```
+
+You can also manually edit these files before running `sift apply-merges`.
+
+## Layer 4: Apply Merges
+
+The final stage executes confirmed changes to the graph.
+
+### Merge Operation
+
+For each `CONFIRMED` proposal, sift-kg:
+
+**1. Merge Node Data**
+
+Canonical entity accumulates data from merged members:
+
+```python
+# Combine source documents
+canonical_docs = canonical.get("source_documents", [])
+member_docs = member.get("source_documents", [])
+for doc in member_docs:
+    if doc not in canonical_docs:
+        canonical_docs.append(doc)
+
+# Keep higher confidence
+if member.get("confidence") > canonical.get("confidence"):
+    canonical["confidence"] = member["confidence"]
+
+# Merge attributes (canonical takes precedence)
+for key, value in member.get("attributes", {}).items():
+    if key not in canonical_attrs:
+        canonical_attrs[key] = value
+
+# Track member names as aliases
+member_name = member.get("name")
+if member_name not in aliases:
+    aliases.append(member_name)
+```
+
+From `/home/daytona/workspace/source/src/sift_kg/resolve/engine.py:95`.
+
+**2. Rewrite Edges**
+
+All relations pointing to/from merged members are redirected to the canonical:
+
+```python
+for source, target, key, data in kg.graph.edges(data=True, keys=True):
+    new_source = merge_map.get(source, source)
+    new_target = merge_map.get(target, target)
+    
+    if new_source != source or new_target != target:
+        kg.graph.remove_edge(source, target, key=key)
+        
+        # Skip self-loops
+        if new_source == new_target:
+            stats["self_loops_removed"] += 1
+            continue
+        
+        kg.graph.add_edge(new_source, new_target, key=key, **data)
+```
+
+**3. Remove Merged Nodes**
+
+```python
+for member_id in valid_map:
+    if kg.graph.has_node(member_id):
+        kg.graph.remove_node(member_id)
+        stats["nodes_removed"] += 1
+```
+
+**4. Remove Rejected Relations**
+
+Relations marked `REJECTED` in `relation_review.yaml` are deleted:
+
+```python
+rejection_keys: set[tuple[str, str, str]] = set()
+for entry in review_file.rejected:
+    rejection_keys.add((entry.source_id, entry.target_id, entry.relation_type))
+    # Also handle symmetric
+    rejection_keys.add((entry.target_id, entry.source_id, entry.relation_type))
+
+for source, target, key, data in kg.graph.edges(data=True, keys=True):
+    rel_type = data.get("relation_type", "")
+    if (source, target, rel_type) in rejection_keys:
+        kg.graph.remove_edge(source, target, key=key)
+        removed += 1
+```
+
+From `/home/daytona/workspace/source/src/sift_kg/resolve/engine.py:140`.
+
+### Output Statistics
+
+```
+Applied 23 merges: 23 nodes removed, 3 self-loops dropped
+Removed 8 rejected relations
+
+Graph updated!
+  Entities: 892 (was 915)
+  Relations: 1,247 (was 1,258)
+```
+
+The updated graph is saved to `graph_data.json`.
+
+## Real-World Example
+
+Let's trace a person entity through all 4 layers:
+
+### Initial Extractions
+
+Three documents extract variations of the same person:
+
+```json
+[
+  {"name": "Mr. Edwards", "type": "PERSON", "source": "doc1.pdf"},
+  {"name": "Bradley Edwards", "type": "PERSON", "source": "doc2.pdf"},
+  {"name": "Bradley Edwards", "type": "PERSON", "source": "doc3.pdf"},
+  {"name": "Detective Edwards", "type": "PERSON", "source": "doc4.pdf"},
+  {"name": "brad edwards", "type": "PERSON", "source": "doc5.pdf"}
+]
+```
+
+### Layer 1: Pre-Dedup
+
+**Normalization:**
+
+```
+"Mr. Edwards" → "edwards" (title stripped, lowercased)
+"Bradley Edwards" → "bradley edwards"
+"Detective Edwards" → "edwards" (title stripped)
+"brad edwards" → "brad edwards"
+```
+
+**Grouping by normalized form:**
+
+```python
+{
+  "bradley edwards": ["Bradley Edwards", "Bradley Edwards"],
+  "edwards": ["Mr. Edwards", "Detective Edwards"],
+  "brad edwards": ["brad edwards"]
+}
+```
+
+**Canonical selection:**
+
+```python
+Group "bradley edwards": "Bradley Edwards" (frequency 2)
+Group "edwards": "Mr. Edwards" (arbitrary, both frequency 1)
+Group "brad edwards": "brad edwards" (only variant)
+```
+
+**SemHash clustering:**
+
+```python
+"bradley edwards" ↔ "brad edwards" (similarity: 0.97) → MERGE
+"edwards" ↔ "bradley edwards" (similarity: 0.89) → NO MERGE (below 0.95)
+```
+
+**Result after pre-dedup:**
+
+```
+3 unique entities:
+  - person:bradley_edwards (from "Bradley Edwards", "brad edwards")
+  - person:mr_edwards (from "Mr. Edwards", "Detective Edwards")
+```
+
+Note: "edwards" and "bradley edwards" weren't merged because semantic similarity was below the 0.95 threshold. This is where LLM resolution helps.
+
+### Layer 2: LLM Resolution
+
+Entities sent to LLM:
+
+```json
+[
+  {
+    "id": "person:bradley_edwards",
+    "name": "Bradley Edwards",
+    "aliases": ["brad edwards"]
+  },
+  {
+    "id": "person:mr_edwards",
+    "name": "Mr. Edwards",
+    "aliases": ["Detective Edwards"]
+  }
+]
+```
+
+LLM response:
+
+```json
+{
+  "groups": [
+    {
+      "canonical_id": "person:bradley_edwards",
+      "canonical_name": "Bradley Edwards",
+      "member_ids": ["person:bradley_edwards", "person:mr_edwards"],
+      "confidence": 0.92,
+      "reason": "Same person. 'Mr. Edwards' and 'Detective Edwards' are title variations of Bradley Edwards"
+    }
+  ],
+  "variants": []
+}
+```
+
+**Merge proposal created:**
+
+```yaml
+canonical_id: person:bradley_edwards
+canonical_name: Bradley Edwards
+entity_type: PERSON
+status: DRAFT
+members:
+  - id: person:mr_edwards
+    name: Mr. Edwards
+    confidence: 0.92
+reason: "Same person. 'Mr. Edwards' and 'Detective Edwards' are title variations"
+```
+
+### Layer 3: Human Review
+
+```
+┌─ Merge 1/1 ──────────────────────────────────────┐
+│ Merge into: Bradley Edwards                      │
+│ Type: PERSON                                      │
+│                                                   │
+│ Members to merge                                  │
+│   Member         ID                    Confidence │
+│   Mr. Edwards    person:mr_edwards          92%   │
+│                                                   │
+│ Reason: Same person with title variations         │
+└───────────────────────────────────────────────────┘
+  [a]pprove  [r]eject  [s]kip  [q]uit → a
+```
+
+User approves. Status changes to `CONFIRMED`.
+
+### Layer 4: Apply Merge
+
+**Before merge:**
+
+```
+Nodes:
+  - person:bradley_edwards
+    name: "Bradley Edwards"
+    source_documents: ["doc2.pdf", "doc3.pdf", "doc5.pdf"]
+    aliases: ["brad edwards"]
+  
+  - person:mr_edwards
+    name: "Mr. Edwards"
+    source_documents: ["doc1.pdf", "doc4.pdf"]
+    aliases: ["Detective Edwards"]
+
+Edges:
+  - person:bradley_edwards → org:acme (EMPLOYED_BY)
+  - person:mr_edwards → org:acme (EMPLOYED_BY)
+```
+
+**After merge:**
+
+```
+Nodes:
+  - person:bradley_edwards
+    name: "Bradley Edwards"
+    source_documents: ["doc1.pdf", "doc2.pdf", "doc3.pdf", "doc4.pdf", "doc5.pdf"]
+    aliases: ["brad edwards", "Mr. Edwards", "Detective Edwards"]
+
+Edges:
+  - person:bradley_edwards → org:acme (EMPLOYED_BY) [self-loop removed]
+```
+
+The duplicate EMPLOYED_BY relation becomes a self-loop and is dropped.
+
+**Final result:** One consolidated entity with complete provenance and all name variations tracked.
+
+## Advanced Features
+
+### Semantic Clustering
+
+For very large entity sets (1000+), use embedding-based clustering instead of alphabetical batching:
+
+```bash
+sift resolve --embeddings
+```
+
+Requires installing the embeddings extra:
+
+```bash
+pip install sift-kg[embeddings]
+```
+
+How it works:
+
+1. Generate embeddings for all entity names
+2. Cluster by cosine similarity
+3. Each cluster becomes a batch sent to the LLM
+
+Benefits:
+
+- Semantically similar entities are batched together
+- Reduces false negatives (missed duplicates)
+- Better for multilingual entities
+
+Tradeoff: Slower and requires more memory.
+
+### Domain-Specific Resolution Context
+
+Provide domain context to help the LLM make better decisions:
+
+```yaml
+name: "Academic Research"
+system_context: |
+  When resolving entities:
+  
+  - "Transformer" (architecture) vs "BERT" (model): DO NOT MERGE
+    BERT EXTENDS Transformer, they are related but distinct
+  
+  - "ResNet" vs "Residual Networks": MERGE (same thing)
+  
+  - "John Smith" (researcher) vs "J. Smith" (author): LIKELY SAME
+    unless there's evidence of different affiliations
+```
+
+### Reviewing Previous Decisions
+
+If you want to re-review previously confirmed/rejected proposals:
+
+1. Edit `merge_proposals.yaml` and change status back to `DRAFT`:
+
+   ```yaml
+   proposals:
+     - canonical_id: person:alice
+       status: DRAFT  # Was CONFIRMED, changing to re-review
+       # ...
+   ```
+
+2. Run `sift review` again:
+
+   ```bash
+   sift review
+   ```
+
+### Manual Merge Proposals
+
+You can manually add merge proposals to `merge_proposals.yaml`:
+
+```yaml
+proposals:
+  - canonical_id: org:acme_corp
+    canonical_name: Acme Corporation
+    entity_type: ORGANIZATION
+    status: CONFIRMED  # Or DRAFT to review first
+    members:
+      - id: org:acme
+        name: Acme
+        confidence: 1.0
+      - id: org:acme_inc
+        name: Acme Inc.
+        confidence: 1.0
+    reason: "Manual merge — same company"
+```
+
+Then run `sift apply-merges` to execute.
+
+## Performance Considerations
+
+### Cost Estimation
+
+Entity resolution costs scale with entity count:
+
+```python
+# Rough estimate
+entities_per_type = 500
+batch_size = 100
+batches_per_type = math.ceil(entities_per_type / (batch_size - 20))  # Account for overlap
+total_batches = batches_per_type * num_entity_types
+
+# Cost per batch: ~$0.01 with gpt-4o-mini
+total_cost = total_batches * 0.01
+```
+
+For 1,000 entities across 10 types with gpt-4o-mini:
+
+```
+500 entities/type ÷ 80 effective batch size = 7 batches/type
+7 batches/type × 10 types = 70 batches
+70 batches × $0.01/batch = $0.70 total
+```
+
+### Speed Optimization
+
+Use concurrency to parallelize LLM calls:
+
+```bash
+sift resolve --concurrency 8  # Process 8 batches simultaneously
+```
+
+Default is 4. Higher values speed up resolution but may hit rate limits.
+
+### Skipping Resolution
+
+If you're confident in your extractions or have very clean data:
+
+```bash
+sift extract ./docs
+sift build
+# Skip resolve entirely
+sift narrate
+```
+
+You can always run `sift resolve` later if you discover duplicates.
+
+## Best Practices
+
+### 1. Review High-Impact Merges First
+
+Sort proposals by degree (connection count) to focus on central entities:
+
+```python
+# In merge_proposals.yaml, manually reorder or
+# load into a script and sort
+proposals.sort(key=lambda p: degree[p.canonical_id], reverse=True)
+```
+
+Merging highly-connected entities has bigger impact on graph structure.
+
+### 2. Use Auto-Approval Conservatively
+
+Start with a high threshold:
+
+```bash
+sift review --auto-approve 0.90  # Very conservative
+```
+
+Review the auto-approved proposals in `merge_proposals.yaml`. If quality is good, lower the threshold:
+
+```bash
+sift review --auto-approve 0.85
+```
+
+### 3. Iterate on Domain Context
+
+If the LLM makes systematic mistakes, add guidance to `system_context`:
+
+```yaml
+system_context: |
+  Common mistakes to avoid:
+  - "University of X" and "X University" are the SAME (merge them)
+  - "John Smith" and "John Smith Jr." are DIFFERENT (father and son)
+  - "ACL" (conference) and "ACL" (association) are DIFFERENT entities
+```
+
+### 4. Combine with Pre-Dedup Tuning
+
+If pre-dedup misses obvious duplicates, you can adjust the SemHash threshold in code:
+
+```python
+from sift_kg.graph.prededup import prededup_entities
+
+# Lower threshold = more aggressive merging
+canonical_map = prededup_entities(extractions, similarity_threshold=0.93)
+```
+
+Default is 0.95 (conservative).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="How It Works" icon="gears" href="/concepts/how-it-works">
+    Understand the full pipeline from extraction to visualization
+  </Card>
+  <Card title="Domains" icon="sitemap" href="/concepts/domains">
+    Learn about bundled domains and creating custom schemas
+  </Card>
+</CardGroup>

@@ -1,0 +1,610 @@
+---
+title: Pipeline Functions
+description: Library-usable pipeline functions for programmatic control
+---
+
+## Overview
+
+Each pipeline function corresponds to a CLI command but takes explicit parameters instead of reading from config files. Use these from Jupyter notebooks, web apps, or anywhere you want sift-kg as a library.
+
+---
+
+## run_pipeline
+
+```python
+from sift_kg import run_pipeline
+```
+
+Run the full pipeline: extract → build → narrate. Skips resolve/apply-merges (those require human review).
+
+### Signature
+
+```python
+def run_pipeline(
+    doc_dir: Path,
+    model: str,
+    domain: DomainConfig,
+    output_dir: Path,
+    max_cost: float | None = None,
+    include_narrative: bool = True,
+) -> Path
+```
+
+### Parameters
+
+<ParamField path="doc_dir" type="Path" required>
+  Directory containing documents (PDF, text, HTML, 75+ formats)
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  LLM model string (e.g. `"openai/gpt-4o-mini"`, `"anthropic/claude-3-5-sonnet-20241022"`)
+</ParamField>
+
+<ParamField path="domain" type="DomainConfig" required>
+  Domain configuration object loaded via `load_domain()`
+</ParamField>
+
+<ParamField path="output_dir" type="Path" required>
+  Output directory for all artifacts (extractions, graph, narratives)
+</ParamField>
+
+<ParamField path="max_cost" type="float | None" default="None">
+  Budget cap in USD. Pipeline stops if cost exceeds this limit.
+</ParamField>
+
+<ParamField path="include_narrative" type="bool" default="True">
+  Whether to generate narrative summary at the end
+</ParamField>
+
+### Returns
+
+<ResponseField name="output_dir" type="Path">
+  Path to output directory containing all pipeline artifacts
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_pipeline
+
+domain = load_domain(bundled_name="schema-free")
+
+output_dir = run_pipeline(
+    doc_dir=Path("./documents"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+    max_cost=10.0,
+    include_narrative=True,
+)
+
+print(f"Pipeline complete! Check {output_dir}")
+```
+
+---
+
+## run_extract
+
+```python
+from sift_kg import run_extract
+```
+
+Extract entities and relations from all documents in a directory.
+
+### Signature
+
+```python
+def run_extract(
+    doc_dir: Path,
+    model: str,
+    domain: DomainConfig,
+    output_dir: Path,
+    max_cost: float | None = None,
+    concurrency: int = 4,
+    chunk_size: int = 10000,
+    force: bool = False,
+    extractor: str = "kreuzberg",
+    ocr: bool = False,
+    ocr_backend: str = "tesseract",
+    ocr_language: str = "eng",
+    rpm: int = 40,
+) -> list[DocumentExtraction]
+```
+
+### Parameters
+
+<ParamField path="doc_dir" type="Path" required>
+  Directory containing documents to extract from
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  LLM model string (e.g. `"openai/gpt-4o-mini"`)
+</ParamField>
+
+<ParamField path="domain" type="DomainConfig" required>
+  Domain configuration
+</ParamField>
+
+<ParamField path="output_dir" type="Path" required>
+  Where to save extraction JSON files
+</ParamField>
+
+<ParamField path="max_cost" type="float | None" default="None">
+  Budget cap in USD
+</ParamField>
+
+<ParamField path="concurrency" type="int" default="4">
+  Concurrent LLM calls per document
+</ParamField>
+
+<ParamField path="chunk_size" type="int" default="10000">
+  Characters per text chunk. Larger = fewer API calls but longer context.
+</ParamField>
+
+<ParamField path="force" type="bool" default="False">
+  Re-extract all documents, ignoring cached results
+</ParamField>
+
+<ParamField path="extractor" type="str" default="kreuzberg">
+  Extraction backend — `"kreuzberg"` (default) or `"pdfplumber"`
+</ParamField>
+
+<ParamField path="ocr" type="bool" default="False">
+  Enable OCR for scanned documents
+</ParamField>
+
+<ParamField path="ocr_backend" type="str" default="tesseract">
+  OCR engine — `"tesseract"`, `"easyocr"`, `"paddleocr"`, or `"gcv"`
+</ParamField>
+
+<ParamField path="ocr_language" type="str" default="eng">
+  OCR language code (ISO 639-3, e.g. `"eng"`, `"spa"`, `"fra"`)
+</ParamField>
+
+<ParamField path="rpm" type="int" default="40">
+  Max requests per minute for rate limiting
+</ParamField>
+
+### Returns
+
+<ResponseField name="extractions" type="list[DocumentExtraction]">
+  List of extraction results, one per document
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_extract
+
+domain = load_domain(bundled_name="biomedical")
+
+extractions = run_extract(
+    doc_dir=Path("./papers"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+    chunk_size=15000,
+    concurrency=8,
+    ocr=True,
+    max_cost=5.0,
+)
+
+print(f"Extracted {len(extractions)} documents")
+```
+
+---
+
+## run_build
+
+```python
+from sift_kg import run_build
+```
+
+Build knowledge graph from extraction results. Also flags relations for review and saves the graph.
+
+### Signature
+
+```python
+def run_build(
+    output_dir: Path,
+    domain: DomainConfig,
+    review_threshold: float = 0.7,
+    postprocess: bool = True,
+) -> KnowledgeGraph
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with extraction JSON files (from `run_extract`)
+</ParamField>
+
+<ParamField path="domain" type="DomainConfig" required>
+  Domain configuration (used for review_required types)
+</ParamField>
+
+<ParamField path="review_threshold" type="float" default="0.7">
+  Flag relations below this confidence for human review
+</ParamField>
+
+<ParamField path="postprocess" type="bool" default="True">
+  Whether to remove redundant edges during graph construction
+</ParamField>
+
+### Returns
+
+<ResponseField name="kg" type="KnowledgeGraph">
+  Populated knowledge graph saved to `output_dir/graph_data.json`
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_build
+
+domain = load_domain(bundled_name="schema-free")
+
+kg = run_build(
+    output_dir=Path("./output"),
+    domain=domain,
+    review_threshold=0.6,
+    postprocess=True,
+)
+
+print(f"Built graph: {kg.entity_count} entities, {kg.relation_count} relations")
+```
+
+---
+
+## run_resolve
+
+```python
+from sift_kg import run_resolve
+```
+
+Find duplicate entities using LLM-based resolution. Generates merge proposals for human review.
+
+### Signature
+
+```python
+def run_resolve(
+    output_dir: Path,
+    model: str,
+    domain: DomainConfig | None = None,
+    use_embeddings: bool = False,
+    concurrency: int = 4,
+    rpm: int = 40,
+) -> MergeFile
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with `graph_data.json`
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  LLM model string for entity comparison
+</ParamField>
+
+<ParamField path="domain" type="DomainConfig | None" default="None">
+  Domain configuration (provides system context for smarter resolution)
+</ParamField>
+
+<ParamField path="use_embeddings" type="bool" default="False">
+  Use semantic clustering for batching candidates (requires `sift-kg[embeddings]`)
+</ParamField>
+
+<ParamField path="concurrency" type="int" default="4">
+  Concurrent LLM calls
+</ParamField>
+
+<ParamField path="rpm" type="int" default="40">
+  Max requests per minute
+</ParamField>
+
+### Returns
+
+<ResponseField name="merge_file" type="MergeFile">
+  Merge file with DRAFT proposals saved to `output_dir/merge_proposals.yaml`
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_resolve
+
+domain = load_domain(bundled_name="biomedical")
+
+merge_file = run_resolve(
+    output_dir=Path("./output"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    use_embeddings=True,
+    concurrency=8,
+)
+
+print(f"Found {len(merge_file.proposals)} merge candidates")
+print("Review and edit ./output/merge_proposals.yaml")
+```
+
+---
+
+## run_apply_merges
+
+```python
+from sift_kg import run_apply_merges
+```
+
+Apply confirmed entity merges and relation rejections after human review.
+
+### Signature
+
+```python
+def run_apply_merges(output_dir: Path) -> dict
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with `graph_data.json` and review files (`merge_proposals.yaml`, `relation_review.yaml`)
+</ParamField>
+
+### Returns
+
+<ResponseField name="stats" type="dict">
+  Stats dict with keys:
+  - `merges_applied` (int): Number of entity merges applied
+  - `rejected_count` (int): Number of relations rejected
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import run_apply_merges
+
+# After reviewing merge_proposals.yaml and changing status: DRAFT → CONFIRMED
+stats = run_apply_merges(output_dir=Path("./output"))
+
+print(f"Applied {stats['merges_applied']} merges")
+print(f"Rejected {stats['rejected_count']} relations")
+```
+
+---
+
+## run_narrate
+
+```python
+from sift_kg import run_narrate
+```
+
+Generate narrative summary from the knowledge graph using community detection and LLM summarization.
+
+### Signature
+
+```python
+def run_narrate(
+    output_dir: Path,
+    model: str,
+    system_context: str = "",
+    include_entity_descriptions: bool = True,
+    max_cost: float | None = None,
+    communities_only: bool = False,
+) -> Path
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with `graph_data.json`
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  LLM model string
+</ParamField>
+
+<ParamField path="system_context" type="str" default="">
+  Optional domain context injected into LLM prompts
+</ParamField>
+
+<ParamField path="include_entity_descriptions" type="bool" default="True">
+  Generate per-entity descriptions (more expensive)
+</ParamField>
+
+<ParamField path="max_cost" type="float | None" default="None">
+  Budget cap in USD
+</ParamField>
+
+<ParamField path="communities_only" type="bool" default="False">
+  Only regenerate community labels (~$0.01 cost)
+</ParamField>
+
+### Returns
+
+<ResponseField name="output_path" type="Path">
+  Path to generated `narrative.md` or `communities.json`
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import run_narrate
+
+narrative_path = run_narrate(
+    output_dir=Path("./output"),
+    model="openai/gpt-4o-mini",
+    system_context="This is a biomedical research corpus.",
+    include_entity_descriptions=True,
+    max_cost=2.0,
+)
+
+print(f"Narrative saved to {narrative_path}")
+```
+
+---
+
+## run_view
+
+```python
+from sift_kg import run_view
+```
+
+Generate interactive graph visualization with optional pre-filters.
+
+### Signature
+
+```python
+def run_view(
+    output_dir: Path,
+    to: Path | None = None,
+    open_browser: bool = True,
+    top_n: int | None = None,
+    min_confidence: float | None = None,
+    source_doc: str | None = None,
+    neighborhood: str | None = None,
+    depth: int = 1,
+    community: str | None = None,
+) -> Path
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with `graph_data.json`
+</ParamField>
+
+<ParamField path="to" type="Path | None" default="None">
+  Output HTML path (default: `output_dir/graph.html`)
+</ParamField>
+
+<ParamField path="open_browser" type="bool" default="True">
+  Whether to open the visualization in a browser automatically
+</ParamField>
+
+<ParamField path="top_n" type="int | None" default="None">
+  Show only top N entities by degree (useful for large graphs)
+</ParamField>
+
+<ParamField path="min_confidence" type="float | None" default="None">
+  Hide nodes/edges below this confidence threshold
+</ParamField>
+
+<ParamField path="source_doc" type="str | None" default="None">
+  Show only entities from this document
+</ParamField>
+
+<ParamField path="neighborhood" type="str | None" default="None">
+  Center visualization on entity ID (e.g. `"person:alice"`)
+</ParamField>
+
+<ParamField path="depth" type="int" default="1">
+  Number of hops for neighborhood filter (used with `neighborhood`)
+</ParamField>
+
+<ParamField path="community" type="str | None" default="None">
+  Focus on a specific community label
+</ParamField>
+
+### Returns
+
+<ResponseField name="html_path" type="Path">
+  Path to generated interactive HTML file
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import run_view
+
+# Full graph
+html_path = run_view(
+    output_dir=Path("./output"),
+    min_confidence=0.5,
+    open_browser=True,
+)
+
+# Neighborhood view
+html_path = run_view(
+    output_dir=Path("./output"),
+    neighborhood="person:alice",
+    depth=2,
+    open_browser=False,
+)
+
+print(f"Visualization: {html_path}")
+```
+
+---
+
+## run_export
+
+```python
+from sift_kg import run_export
+```
+
+Export the knowledge graph to various formats.
+
+### Signature
+
+```python
+def run_export(
+    output_dir: Path,
+    fmt: str = "json",
+    export_path: Path | None = None,
+) -> Path
+```
+
+### Parameters
+
+<ParamField path="output_dir" type="Path" required>
+  Directory with `graph_data.json`
+</ParamField>
+
+<ParamField path="fmt" type="str" default="json">
+  Export format — `"json"`, `"graphml"`, `"gexf"`, `"csv"`, or `"sqlite"`
+</ParamField>
+
+<ParamField path="export_path" type="Path | None" default="None">
+  Where to write output (default: `output_dir/graph.{fmt}`)
+</ParamField>
+
+### Returns
+
+<ResponseField name="export_path" type="Path">
+  Path to the exported file or directory (for CSV format)
+</ResponseField>
+
+### Example
+
+```python
+from pathlib import Path
+from sift_kg import run_export
+
+# Export to GraphML for Gephi/Cytoscape
+graphml_path = run_export(
+    output_dir=Path("./output"),
+    fmt="graphml",
+)
+
+# Export to SQLite database
+db_path = run_export(
+    output_dir=Path("./output"),
+    fmt="sqlite",
+    export_path=Path("./graph.db"),
+)
+
+# Export to CSV files (nodes.csv + edges.csv)
+csv_dir = run_export(
+    output_dir=Path("./output"),
+    fmt="csv",
+)
+
+print(f"Exported to {graphml_path}, {db_path}, {csv_dir}")
+```

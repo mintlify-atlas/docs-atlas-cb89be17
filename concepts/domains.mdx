@@ -1,0 +1,720 @@
+---
+title: Domains
+description: Understanding and creating domain configurations for targeted extraction
+---
+
+## What Are Domains?
+
+A **domain** is a YAML configuration that defines:
+
+- **Entity types**: What kinds of things to extract (people, organizations, concepts, etc.)
+- **Relation types**: How entities can be connected
+- **Extraction hints**: Guidance for the LLM to improve accuracy
+- **Review requirements**: Which relations need human validation
+- **System context**: Background information to help the LLM understand your documents
+
+Domains act as a schema that guides extraction, ensuring consistency across documents.
+
+## Bundled Domains
+
+sift-kg ships with four production-ready domains:
+
+### Schema-Free
+
+<Tip>
+Best for: Exploratory analysis, unknown document types, rapid prototyping
+</Tip>
+
+The schema-free domain lets the LLM discover entity and relation types from your documents:
+
+```yaml
+name: "Schema-Free"
+version: "1.0.0"
+schema_free: true
+entity_types: {}
+relation_types: {}
+```
+
+**How it works:**
+
+1. Samples your documents
+2. LLM designs entity and relation types tailored to the corpus
+3. Schema saved to `discovered_domain.yaml`
+4. Uses discovered schema for consistent extraction
+
+**When to use:**
+- You don't know what entity types exist in your documents
+- You want to explore a new dataset
+- You're building a custom domain and want to see what the LLM finds
+
+**Example discovered schema:**
+
+```yaml
+entity_types:
+  TECHNIQUE:
+    description: "Machine learning methods and algorithms"
+  BENCHMARK:
+    description: "Evaluation datasets and metrics"
+  MODEL:
+    description: "Trained neural network architectures"
+relation_types:
+  EVALUATED_ON:
+    description: "Model performance measured on benchmark"
+    source_types: [MODEL]
+    target_types: [BENCHMARK]
+```
+
+### General Purpose
+
+<Tip>
+Best for: Business documents, reports, news articles, general text
+</Tip>
+
+The general domain provides broad coverage for common entity types:
+
+```yaml
+name: "General Purpose"
+fallback_relation: ASSOCIATED_WITH
+
+entity_types:
+  PERSON:
+    description: "Individual people mentioned in documents"
+    extraction_hints:
+      - "Look for full names, titles, roles, and biographical details"
+      - "Include birth/death dates, occupations, and affiliations"
+  
+  ORGANIZATION:
+    description: "Companies, institutions, government bodies, NGOs"
+    extraction_hints:
+      - "Include full official names and common abbreviations"
+      - "Note the type of organization"
+  
+  LOCATION:
+    description: "Geographic places — cities, countries, addresses, regions"
+  
+  DOCUMENT:
+    description: "Referenced documents, records, filings, publications"
+  
+  EVENT:
+    description: "Significant occurrences with dates"
+    extraction_hints:
+      - "Capture the date, participants, and outcome"
+      - "Note the type of event"
+
+relation_types:
+  MEMBER_OF:
+    description: "Person belongs to or is employed by an organization"
+    source_types: [PERSON]
+    target_types: [ORGANIZATION]
+  
+  LOCATED_IN:
+    description: "Entity is located within a geographic area"
+    source_types: [ORGANIZATION, LOCATION, EVENT]
+    target_types: [LOCATION]
+  
+  PARTICIPATED_IN:
+    description: "Person or organization participated in an event"
+    source_types: [PERSON, ORGANIZATION]
+    target_types: [EVENT]
+  
+  OWNS:
+    description: "Person or organization owns property or assets"
+    source_types: [PERSON, ORGANIZATION]
+    target_types: [ORGANIZATION, LOCATION]
+  
+  RELATED_TO:
+    description: "Family or personal relationship between people"
+    source_types: [PERSON]
+    target_types: [PERSON]
+    symmetric: true
+```
+
+Full schema: `/home/daytona/workspace/source/src/sift_kg/domains/bundled/general/domain.yaml`
+
+### OSINT Investigation
+
+<Tip>
+Best for: Corporate investigations, beneficial ownership tracing, financial networks
+</Tip>
+
+Optimized for open-source intelligence work:
+
+```yaml
+name: "OSINT Investigation"
+
+system_context: |
+  You are analyzing documents for an open-source intelligence investigation.
+  Focus on identifying corporate structures, beneficial ownership chains,
+  financial relationships, and connections between individuals and entities.
+  Pay close attention to shell companies, nominee directors, offshore
+  jurisdictions, and obfuscated ownership patterns.
+
+entity_types:
+  PERSON:
+    description: "Individuals — directors, shareholders, signatories, beneficiaries"
+    extraction_hints:
+      - "Note aliases, maiden names, and name variations"
+      - "Capture roles like director, secretary, nominee, beneficial owner"
+  
+  ORGANIZATION:
+    description: "Companies, partnerships, trusts, foundations"
+    extraction_hints:
+      - "Note jurisdiction of incorporation and registration numbers"
+      - "Distinguish between operating companies and holding/shell entities"
+  
+  SHELL_COMPANY:
+    description: "Entities with no apparent operations"
+    extraction_hints:
+      - "Flag companies at mass-registration addresses"
+      - "Look for nominee directors, no employees, minimal activity"
+  
+  FINANCIAL_ACCOUNT:
+    description: "Bank accounts, investment accounts, crypto wallets, trusts"
+    extraction_hints:
+      - "Capture account numbers, bank names, and account holders"
+      - "Note correspondent banking relationships"
+  
+  LOCATION:
+    description: "Addresses, jurisdictions, countries, registered offices"
+    extraction_hints:
+      - "Note offshore jurisdictions: BVI, Cayman, Panama, Seychelles"
+      - "Identify addresses shared by multiple entities"
+
+relation_types:
+  BENEFICIAL_OWNER_OF:
+    description: "Person is ultimate beneficial owner (direct or indirect)"
+    source_types: [PERSON]
+    target_types: [ORGANIZATION, SHELL_COMPANY]
+    review_required: true  # Requires human validation
+    extraction_hints:
+      - "May be indirect through chains of holding companies"
+      - "Look for ownership percentages and control mechanisms"
+  
+  DIRECTOR_OF:
+    description: "Person serves as director, officer, or secretary"
+    source_types: [PERSON]
+    target_types: [ORGANIZATION, SHELL_COMPANY]
+  
+  SHAREHOLDER_OF:
+    description: "Person or entity holds shares in another entity"
+    source_types: [PERSON, ORGANIZATION, SHELL_COMPANY]
+    target_types: [ORGANIZATION, SHELL_COMPANY]
+    extraction_hints:
+      - "Note ownership percentages and share classes"
+      - "Bearer shares indicate potential obfuscation"
+  
+  TRANSACTED_WITH:
+    description: "Financial transaction between entities or through accounts"
+    source_types: [PERSON, ORGANIZATION, SHELL_COMPANY, FINANCIAL_ACCOUNT]
+    target_types: [PERSON, ORGANIZATION, SHELL_COMPANY, FINANCIAL_ACCOUNT]
+    review_required: true
+    extraction_hints:
+      - "Capture amount, currency, date, and stated purpose"
+      - "Note intermediary banks or correspondent accounts"
+  
+  SUBSIDIARY_OF:
+    description: "Entity is a subsidiary, branch, or division of a parent"
+    source_types: [ORGANIZATION, SHELL_COMPANY]
+    target_types: [ORGANIZATION, SHELL_COMPANY]
+  
+  REGISTERED_IN:
+    description: "Entity is registered or incorporated in a jurisdiction"
+    source_types: [ORGANIZATION, SHELL_COMPANY]
+    target_types: [LOCATION]
+```
+
+Full schema: `/home/daytona/workspace/source/src/sift_kg/domains/bundled/osint/domain.yaml`
+
+### Academic Research
+
+<Tip>
+Best for: Literature reviews, research mapping, understanding idea networks
+</Tip>
+
+Maps the intellectual landscape of research areas:
+
+```yaml
+name: "Academic Research"
+
+system_context: |
+  You are analyzing academic papers to map the intellectual landscape.
+  Your goal is to extract the structure of ideas — not bibliometric metadata.
+  
+  Focus on:
+  - Which theories EXPLAIN which phenomena or findings
+  - Which findings SUPPORT or CONTRADICT which theories
+  - Which methods are USED to produce which findings
+  - Which systems IMPLEMENT which theories or methods
+  - Which researchers PROPOSED key theories, methods, or findings
+  
+  Distinguish between abstract ideas and concrete artifacts:
+  - "Transformer" as an architecture is a THEORY
+  - "GPT-2" the trained model is a SYSTEM
+  - "reinforcement learning" is a METHOD
+  - "PPO" the algorithm is a METHOD
+  - "ChatGPT" is a SYSTEM
+  - Named benchmarks (GLUE, ImageNet) are SYSTEMs
+
+entity_types:
+  CONCEPT:
+    description: "Core ideas, constructs, variables, technical terms"
+    extraction_hints:
+      - "Look for defined terms and key variables"
+      - "Use CONCEPT for ideas without named frameworks"
+      - "If it has a proper name and makes predictions, use THEORY"
+  
+  THEORY:
+    description: "Named theoretical frameworks, models, paradigms"
+    extraction_hints:
+      - "Must have a proper name (e.g. 'Cognitive Load Theory')"
+      - "Include paradigms and schools of thought"
+      - "Note the originator or key proponents"
+  
+  METHOD:
+    description: "Research methods, techniques, analytical approaches, tools"
+    extraction_hints:
+      - "Include study designs, analysis techniques, and instruments"
+      - "Capture software tools central to methodology"
+  
+  FINDING:
+    description: "Key results, conclusions, effects, empirical observations"
+    extraction_hints:
+      - "Capture effect sizes and statistical significance"
+      - "Include null results and negative findings"
+      - "Use concise canonical labels (e.g. 'bilingual cognitive advantage')"
+  
+  PHENOMENON:
+    description: "Observable events, behaviors, patterns being studied"
+    extraction_hints:
+      - "The real-world thing being investigated"
+      - "PHENOMENON is observable; CONCEPT is abstract; THEORY explains it"
+      - "Examples: 'urban heat island', 'antibiotic resistance'"
+  
+  RESEARCHER:
+    description: "Individual academics credited with originating ideas"
+    extraction_hints:
+      - "Extract researchers attached to specific contributions"
+      - "Skip routine author mentions"
+  
+  SYSTEM:
+    description: "Named systems, models, tools, artifacts built by researchers"
+    extraction_hints:
+      - "Use for specific implementations: BERT, GPT-4, ImageNet, SPSS"
+      - "SYSTEM is concrete; METHOD is abstract"
+      - "Include benchmarks and datasets with proper names"
+  
+  FIELD:
+    description: "Academic disciplines, subfields, interdisciplinary areas"
+
+relation_types:
+  SUPPORTS:
+    description: "Provides evidence for, validates, demonstrates effectiveness"
+    source_types: [FINDING, PUBLICATION, SYSTEM, METHOD, CONCEPT]
+    target_types: [THEORY, CONCEPT, FINDING, SYSTEM, METHOD, PHENOMENON]
+  
+  CONTRADICTS:
+    description: "Provides evidence against, challenges, refutes"
+    source_types: [FINDING, PUBLICATION, SYSTEM, METHOD]
+    target_types: [THEORY, CONCEPT, FINDING, SYSTEM, METHOD]
+    review_required: true
+  
+  EXTENDS:
+    description: "Builds upon or refines another entity"
+    source_types: [THEORY, CONCEPT, METHOD, SYSTEM]
+    target_types: [THEORY, CONCEPT, METHOD, SYSTEM]
+  
+  IMPLEMENTS:
+    description: "System implements or is based on a theory/method/concept"
+    source_types: [SYSTEM]
+    target_types: [THEORY, METHOD, CONCEPT, SYSTEM]
+  
+  USES_METHOD:
+    description: "Entity uses or employs a specific method/technique/system"
+    source_types: [PUBLICATION, FINDING, SYSTEM, METHOD, THEORY]
+    target_types: [METHOD, SYSTEM, CONCEPT]
+  
+  EXPLAINS:
+    description: "Provides explanation, mechanism, or account for"
+    source_types: [THEORY, CONCEPT, METHOD, SYSTEM]
+    target_types: [PHENOMENON, FINDING, CONCEPT, METHOD, SYSTEM]
+  
+  PROPOSED_BY:
+    description: "Entity originated from a researcher or publication"
+    source_types: [THEORY, CONCEPT, METHOD, FINDING, SYSTEM, PUBLICATION]
+    target_types: [RESEARCHER, PUBLICATION]
+```
+
+Full schema: `/home/daytona/workspace/source/src/sift_kg/domains/bundled/academic/domain.yaml`
+
+## Using Bundled Domains
+
+Specify a bundled domain with the `--domain-name` flag:
+
+```bash
+sift extract ./docs --domain-name osint
+sift extract ./papers --domain-name academic
+sift extract ./reports --domain-name general
+```
+
+Or set it in your `sift.yaml` project config:
+
+```yaml
+domain: osint  # Can be a bundled name or path to custom domain
+model: openai/gpt-4o-mini
+output: output
+```
+
+List all available bundled domains:
+
+```bash
+sift domains
+```
+
+Output:
+
+```
+┌─────────────┬────────────────────────────────────┬──────────┬───────────┐
+│ Name        │ Description                        │ Entities │ Relations │
+├─────────────┼────────────────────────────────────┼──────────┼───────────┤
+│ schema-free │ LLM-driven schema discovery        │ 0        │ 0         │
+│ general     │ Default domain for general docs    │ 5        │ 8         │
+│ osint       │ Open-source intelligence           │ 6        │ 9         │
+│ academic    │ Academic research mapping          │ 8        │ 10        │
+└─────────────┴────────────────────────────────────┴──────────┴───────────┘
+```
+
+## Creating Custom Domains
+
+Build a domain tailored to your use case:
+
+### Basic Structure
+
+```yaml
+name: "Legal Case Analysis"
+version: "1.0.0"
+description: |
+  Domain for analyzing court filings, depositions, and legal documents.
+  Optimized for tracking parties, claims, evidence, and legal arguments.
+
+# Optional: context passed to LLM for better understanding
+system_context: |
+  You are analyzing legal documents to map parties, claims, evidence,
+  and legal arguments. Focus on:
+  - Who is involved (plaintiffs, defendants, witnesses, attorneys)
+  - What claims are being made
+  - What evidence supports or refutes claims
+  - Legal precedents and statutes cited
+
+# Fallback for undefined relation types
+fallback_relation: ASSOCIATED_WITH
+
+entity_types:
+  PARTY:
+    description: "Plaintiffs, defendants, intervening parties"
+    extraction_hints:
+      - "Include individual names and corporate entities"
+      - "Note their role: plaintiff, defendant, witness, attorney"
+  
+  CLAIM:
+    description: "Legal claims, causes of action, defenses"
+    extraction_hints:
+      - "Identify the type of claim (breach of contract, fraud, etc.)"
+      - "Note the relief sought"
+  
+  EVIDENCE:
+    description: "Documents, testimony, exhibits, physical evidence"
+    extraction_hints:
+      - "Include exhibit numbers and document identifiers"
+      - "Note what the evidence purports to show"
+  
+  PRECEDENT:
+    description: "Case law, statutes, regulations cited"
+    extraction_hints:
+      - "Include case names and citations"
+      - "Note the legal principle established"
+
+relation_types:
+  BROUGHT_BY:
+    description: "Claim filed by a party"
+    source_types: [CLAIM]
+    target_types: [PARTY]
+  
+  AGAINST:
+    description: "Claim asserted against a party"
+    source_types: [CLAIM]
+    target_types: [PARTY]
+  
+  SUPPORTS:
+    description: "Evidence supports a claim or argument"
+    source_types: [EVIDENCE]
+    target_types: [CLAIM]
+    review_required: true  # Validate evidence-claim links
+  
+  CONTRADICTS:
+    description: "Evidence contradicts a claim or argument"
+    source_types: [EVIDENCE]
+    target_types: [CLAIM]
+    review_required: true
+  
+  CITES:
+    description: "Argument or claim relies on legal precedent"
+    source_types: [CLAIM, PARTY]
+    target_types: [PRECEDENT]
+  
+  REPRESENTED_BY:
+    description: "Party represented by attorney or law firm"
+    source_types: [PARTY]
+    target_types: [PARTY]  # Attorneys are also PARTYs
+```
+
+### Advanced Features
+
+#### 1. Type Constraints
+
+Restrict which entities can be connected:
+
+```yaml
+relation_types:
+  SHAREHOLDER_OF:
+    source_types: [PERSON, ORGANIZATION]  # Only these can be shareholders
+    target_types: [ORGANIZATION]           # Only orgs can have shareholders
+```
+
+Invalid relations are either:
+- Dropped if `domain_relation_types` is provided to `build_graph`
+- Mapped to `fallback_relation` if defined
+- Kept as-is (no constraints)
+
+#### 2. Symmetric Relations
+
+Mark bidirectional relationships:
+
+```yaml
+relation_types:
+  RELATED_TO:
+    description: "Family or personal relationship"
+    source_types: [PERSON]
+    target_types: [PERSON]
+    symmetric: true  # A RELATED_TO B implies B RELATED_TO A
+```
+
+#### 3. Review Requirements
+
+Flag specific relation types for human validation:
+
+```yaml
+relation_types:
+  BENEFICIAL_OWNER_OF:
+    description: "Ultimate beneficial ownership (direct or indirect)"
+    review_required: true  # Always flag for review
+```
+
+During `sift build`, all instances of this relation type are written to `relation_review.yaml` regardless of confidence.
+
+#### 4. Canonical Vocabularies
+
+Enforce closed vocabularies for specific entity types:
+
+```yaml
+entity_types:
+  EVALUATION_METRIC:
+    description: "Standard ML evaluation metrics"
+    canonical_names:
+      - "accuracy"
+      - "precision"
+      - "recall"
+      - "F1 score"
+      - "BLEU"
+      - "ROUGE"
+      - "perplexity"
+    canonical_fallback_type: "CONCEPT"  # Retype non-canonical extractions
+```
+
+How it works:
+- Canonical entities are pre-created in the graph
+- Extractions matching canonical names (case-insensitive) map to canonical entities
+- Non-canonical entities are retyped to `canonical_fallback_type`
+- All relations resolve correctly
+
+Example:
+
+```
+Extracted: "Accuracy" → Merged to canonical "accuracy"
+Extracted: "f1" → Merged to canonical "F1 score"
+Extracted: "my-custom-metric" → Retyped to CONCEPT (fallback)
+```
+
+### Domain File Placement
+
+Save your custom domain as a YAML file:
+
+```bash
+mkdir -p domains
+touch domains/legal.yaml
+```
+
+Use it with the `--domain` flag:
+
+```bash
+sift extract ./cases --domain domains/legal.yaml
+```
+
+Or set it in `sift.yaml`:
+
+```yaml
+domain: domains/legal.yaml
+```
+
+## Domain Best Practices
+
+### 1. Start with Schema-Free
+
+Before building a custom domain, run schema-free extraction to see what the LLM discovers:
+
+```bash
+sift extract ./docs --domain-name schema-free
+cat output/discovered_domain.yaml
+```
+
+Use the discovered schema as a starting point for your custom domain.
+
+### 2. Use Extraction Hints
+
+Guide the LLM with specific instructions:
+
+```yaml
+entity_types:
+  SOFTWARE_VERSION:
+    description: "Specific software releases and version numbers"
+    extraction_hints:
+      - "Include version numbers: 'Python 3.11', 'GPT-4', 'Linux 5.15'"
+      - "Distinguish from the software name itself"
+      - "Capture release dates when mentioned"
+```
+
+### 3. Provide System Context
+
+Help the LLM understand your domain:
+
+```yaml
+system_context: |
+  You are analyzing cybersecurity incident reports. Focus on:
+  - Attack vectors and techniques (map to MITRE ATT&CK when possible)
+  - Threat actors and APT groups
+  - Vulnerabilities and CVE identifiers
+  - Affected systems and infrastructure
+  - Timeline of compromise and remediation
+  
+  Use precise technical terminology. Don't invent entity names.
+```
+
+### 4. Balance Granularity
+
+**Too coarse:**
+```yaml
+entity_types:
+  THING: "Any entity mentioned in documents"  # Not useful
+```
+
+**Too fine-grained:**
+```yaml
+entity_types:
+  PERSON_FIRST_NAME: "First names only"
+  PERSON_LAST_NAME: "Last names only"
+  PERSON_MIDDLE_NAME: "Middle names only"
+  # Extract full names as PERSON instead
+```
+
+**Just right:**
+```yaml
+entity_types:
+  PERSON:
+    description: "Individual people"
+  ORGANIZATION:
+    description: "Companies and institutions"
+  ROLE:
+    description: "Job titles and positions"
+```
+
+### 5. Test Iteratively
+
+Domain design is iterative:
+
+1. Extract a sample of documents
+2. Review the results
+3. Add hints or adjust types
+4. Re-extract with `--force`
+5. Repeat until quality is acceptable
+
+```bash
+# Test on 5 documents first
+sift extract ./sample-docs --domain domains/v1.yaml
+# Review output/extractions/*.json
+
+# Refine domain → domains/v2.yaml
+
+# Re-extract with updated domain
+sift extract ./sample-docs --domain domains/v2.yaml --force
+```
+
+### 6. Version Your Domains
+
+Track domain evolution:
+
+```yaml
+name: "OSINT Investigation"
+version: "2.1.0"  # Increment when making breaking changes
+description: |
+  Changelog:
+  - v2.1.0: Added CRYPTOCURRENCY_WALLET entity type
+  - v2.0.0: Split COMPANY into ORGANIZATION and SHELL_COMPANY
+  - v1.0.0: Initial release
+```
+
+## Domain Configuration Reference
+
+### Top-Level Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Domain name |
+| `version` | string | No | Semantic version (default: "1.0.0") |
+| `description` | string | No | Domain description |
+| `entity_types` | object | Yes | Entity type definitions |
+| `relation_types` | object | Yes | Relation type definitions |
+| `system_context` | string | No | LLM context for extraction |
+| `fallback_relation` | string | No | Default relation for undefined types |
+| `schema_free` | boolean | No | Enable schema discovery mode |
+
+### Entity Type Config
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | string | "" | Entity type description |
+| `extraction_hints` | list[string] | [] | LLM guidance for extraction |
+| `canonical_names` | list[string] | [] | Closed vocabulary (optional) |
+| `canonical_fallback_type` | string | null | Type for non-canonical entities |
+
+### Relation Type Config
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | string | "" | Relation type description |
+| `source_types` | list[string] | [] | Valid source entity types |
+| `target_types` | list[string] | [] | Valid target entity types |
+| `symmetric` | boolean | false | Bidirectional relationship |
+| `extraction_hints` | list[string] | [] | LLM guidance for extraction |
+| `review_required` | boolean | false | Flag all instances for review |
+
+Complete schema: `/home/daytona/workspace/source/src/sift_kg/domains/models.py`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="How It Works" icon="gears" href="/concepts/how-it-works">
+    Understand the full pipeline from extraction to visualization
+  </Card>
+  <Card title="Entity Resolution" icon="code-merge" href="/concepts/entity-resolution">
+    Learn how sift-kg finds and merges duplicate entities
+  </Card>
+</CardGroup>

@@ -1,0 +1,195 @@
+---
+title: "sift view"
+description: "Open interactive graph visualization in browser"
+---
+
+## Overview
+
+Generate and open an interactive HTML visualization of the knowledge graph. Supports filtering, community highlighting, and entity descriptions.
+
+## Usage
+
+```bash
+sift view [OPTIONS]
+```
+
+## Options
+
+### Basic Options
+
+<ParamField path="--output" type="string">
+  Output directory containing graph data. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--to" type="string">
+  Output HTML file path. Defaults to `{output_dir}/graph.html`.
+</ParamField>
+
+<ParamField path="--no-open" type="boolean" default="false">
+  Generate HTML without opening in browser.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+### Filter Options
+
+<ParamField path="--top" type="integer">
+  Show only top N entities by degree (number of connections).
+</ParamField>
+
+<ParamField path="--min-confidence" type="float">
+  Hide nodes and edges below this confidence threshold (0.0-1.0).
+</ParamField>
+
+<ParamField path="--source-doc" type="string">
+  Show only entities extracted from this source document.
+</ParamField>
+
+<ParamField path="--neighborhood" type="string">
+  Center visualization on specific entity and show N-hop neighborhood.
+</ParamField>
+
+<ParamField path="--depth" type="integer" default="1">
+  Number of hops for neighborhood visualization. Used with `--neighborhood`.
+</ParamField>
+
+<ParamField path="--community" type="string">
+  Focus on a specific community (e.g., `Community 1`). Requires `sift narrate` to have been run.
+</ParamField>
+
+## Behavior
+
+### Visualization Features
+
+- **Interactive Layout** - Drag nodes, zoom, pan
+- **Entity Descriptions** - Hover tooltips (if `sift narrate` was run)
+- **Community Colors** - Color-coded communities
+- **Confidence Indicators** - Edge thickness/opacity shows confidence
+- **Search** - Find entities by name
+
+### Entity Descriptions
+
+If `entity_descriptions.json` exists (from `sift narrate`):
+- Descriptions appear in hover tooltips
+- Displayed in info panels
+- Logged in console during generation
+
+## Examples
+
+### Basic visualization
+
+```bash
+sift view
+```
+
+Opens full graph in browser at `output/graph.html`.
+
+### Top entities only
+
+```bash
+sift view --top 50
+```
+
+Shows only the 50 most connected entities.
+
+### Filter by confidence
+
+```bash
+sift view --min-confidence 0.7
+```
+
+Hides entities and relations with confidence below 0.7.
+
+### Source document filter
+
+```bash
+sift view --source-doc "report_2024.pdf"
+```
+
+Shows only entities extracted from the specified document.
+
+### Neighborhood view
+
+```bash
+sift view --neighborhood "John Doe" --depth 2
+```
+
+Centers on "John Doe" entity and shows 2-hop neighborhood.
+
+### Community focus
+
+```bash
+sift view --community "Community 1"
+```
+
+Highlights and focuses on entities in Community 1.
+
+### Combined filters
+
+```bash
+sift view --top 100 --min-confidence 0.8 --no-open --to ./viz.html
+```
+
+Generates filtered visualization without auto-opening browser.
+
+## Output
+
+Generates standalone HTML file with embedded:
+- Graph data
+- Entity attributes
+- Descriptions (if available)
+- Interactive JavaScript visualization
+
+Default location: `{output_dir}/graph.html`
+
+## Output Summary
+
+Displays:
+- Applied filters
+- Entity count (after filters)
+- Relation count (after filters)
+- Output file location
+- Browser URL (if `--no-open` used)
+
+## Visualization Controls
+
+In the browser:
+- **Click & Drag** - Move nodes
+- **Scroll** - Zoom in/out
+- **Right Click** - Pan view
+- **Hover** - Show entity details
+- **Click Node** - Highlight connections
+
+## Performance Tips
+
+### Large Graphs
+
+For graphs with 1000+ entities:
+
+```bash
+sift view --top 200 --min-confidence 0.8
+```
+
+Filtering improves browser performance.
+
+### Focused Exploration
+
+Use neighborhood view to explore specific areas:
+
+```bash
+sift view --neighborhood "Key Entity" --depth 2
+```
+
+## Error Handling
+
+Exits with error if:
+- No `graph_data.json` found (run `sift build` first)
+- Invalid filter parameters
+
+## See Also
+
+- [narrate](/api/cli/narrate) - Generate entity descriptions
+- [export](/api/cli/export) - Export graph data
+- [search](/api/cli/search) - Search entities

@@ -1,0 +1,444 @@
+---
+title: KnowledgeGraph Class
+description: NetworkX-based knowledge graph for entity-relation data
+---
+
+## Overview
+
+The `KnowledgeGraph` class is the core data structure in sift-kg. It's a wrapper around NetworkX's `MultiDiGraph` with specialized methods for entity and relation management.
+
+```python
+from sift_kg import KnowledgeGraph
+```
+
+---
+
+## Constructor
+
+```python
+kg = KnowledgeGraph(
+    canonicalize_relations=True,
+    confidence_aggregation="product_complement",
+)
+```
+
+### Parameters
+
+<ParamField path="canonicalize_relations" type="bool" default="True">
+  If `True`, repeated mentions of the same source/relation/target triple are merged into one canonical edge. The confidence becomes an aggregation of all mentions.
+</ParamField>
+
+<ParamField path="confidence_aggregation" type="str" default="product_complement">
+  How to aggregate confidence scores across multiple mentions:
+  - `"product_complement"`: Independent weak signals reinforce (1 - ∏(1 - c))
+  - `"mean"`: Average confidence across all mentions
+  - `"max"`: Take highest confidence
+</ParamField>
+
+### Example
+
+```python
+from sift_kg import KnowledgeGraph
+
+kg = KnowledgeGraph(
+    canonicalize_relations=True,
+    confidence_aggregation="product_complement",
+)
+```
+
+---
+
+## Class Methods
+
+### load
+
+```python
+@classmethod
+KnowledgeGraph.load(path: str | Path) -> KnowledgeGraph
+```
+
+Load a knowledge graph from a JSON file.
+
+<ParamField path="path" type="str | Path" required>
+  Path to the graph JSON file (typically `graph_data.json`)
+</ParamField>
+
+**Returns:** `KnowledgeGraph` instance
+
+```python
+from pathlib import Path
+from sift_kg import KnowledgeGraph
+
+kg = KnowledgeGraph.load(Path("./output/graph_data.json"))
+print(f"Loaded: {kg.entity_count} entities, {kg.relation_count} relations")
+```
+
+---
+
+## Instance Methods
+
+### add_entity
+
+```python
+kg.add_entity(
+    entity_id: str,
+    entity_type: str,
+    name: str,
+    confidence: float = 0.5,
+    source_documents: list[str] | None = None,
+    **attrs: Any,
+) -> None
+```
+
+Add or update an entity node. If the entity already exists, it merges the new data (takes higher confidence, extends source documents).
+
+<ParamField path="entity_id" type="str" required>
+  Unique entity identifier (e.g. `"person:alice"`, `"org:acme_corp"`)
+</ParamField>
+
+<ParamField path="entity_type" type="str" required>
+  Entity type (e.g. `"PERSON"`, `"ORGANIZATION"`, `"LOCATION"`)
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Display name for the entity
+</ParamField>
+
+<ParamField path="confidence" type="float" default="0.5">
+  Extraction confidence (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="source_documents" type="list[str] | None" default="None">
+  List of source document IDs where this entity was found
+</ParamField>
+
+<ParamField path="**attrs" type="Any">
+  Additional attributes (e.g. `context`, `attributes` dict, custom fields)
+</ParamField>
+
+```python
+kg.add_entity(
+    entity_id="person:alice",
+    entity_type="PERSON",
+    name="Alice Johnson",
+    confidence=0.95,
+    source_documents=["doc1.pdf", "doc2.pdf"],
+    context="CEO of TechCorp",
+    attributes={"role": "executive", "department": "leadership"},
+)
+```
+
+---
+
+### add_relation
+
+```python
+kg.add_relation(
+    relation_id: str,
+    source_id: str,
+    target_id: str,
+    relation_type: str,
+    confidence: float = 0.5,
+    evidence: str = "",
+    source_document: str = "",
+    canonicalize: bool | None = None,
+    confidence_aggregation: str | None = None,
+) -> bool
+```
+
+Add a relation edge between two entities. Returns `False` if source or target entity doesn't exist.
+
+<ParamField path="relation_id" type="str" required>
+  Unique relation identifier
+</ParamField>
+
+<ParamField path="source_id" type="str" required>
+  Source entity ID
+</ParamField>
+
+<ParamField path="target_id" type="str" required>
+  Target entity ID
+</ParamField>
+
+<ParamField path="relation_type" type="str" required>
+  Relation type (e.g. `"WORKS_FOR"`, `"LOCATED_IN"`, `"COLLABORATES_WITH"`)
+</ParamField>
+
+<ParamField path="confidence" type="float" default="0.5">
+  Extraction confidence (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="evidence" type="str" default="">
+  Text evidence supporting this relation
+</ParamField>
+
+<ParamField path="source_document" type="str" default="">
+  Document ID where this relation was found
+</ParamField>
+
+<ParamField path="canonicalize" type="bool | None" default="None">
+  Override the instance-level `canonicalize_relations` setting
+</ParamField>
+
+<ParamField path="confidence_aggregation" type="str | None" default="None">
+  Override the instance-level `confidence_aggregation` method
+</ParamField>
+
+**Returns:** `bool` - `True` if added successfully, `False` if source/target missing
+
+```python
+# Add a relation
+success = kg.add_relation(
+    relation_id="rel_001",
+    source_id="person:alice",
+    target_id="org:techcorp",
+    relation_type="WORKS_FOR",
+    confidence=0.92,
+    evidence="Alice Johnson is the CEO of TechCorp.",
+    source_document="annual_report.pdf",
+)
+
+if not success:
+    print("Failed to add relation: entity not found")
+```
+
+---
+
+### get_entity
+
+```python
+kg.get_entity(entity_id: str) -> dict[str, Any] | None
+```
+
+Get entity data by ID.
+
+<ParamField path="entity_id" type="str" required>
+  Entity identifier
+</ParamField>
+
+**Returns:** `dict[str, Any] | None` - Entity data dict or `None` if not found
+
+```python
+entity = kg.get_entity("person:alice")
+if entity:
+    print(f"Name: {entity['name']}")
+    print(f"Type: {entity['entity_type']}")
+    print(f"Confidence: {entity['confidence']}")
+    print(f"Documents: {entity['source_documents']}")
+```
+
+---
+
+### get_relations
+
+```python
+kg.get_relations(
+    entity_id: str,
+    direction: str = "both",
+) -> list[dict[str, Any]]
+```
+
+Get all relations for an entity.
+
+<ParamField path="entity_id" type="str" required>
+  Entity identifier
+</ParamField>
+
+<ParamField path="direction" type="str" default="both">
+  Direction to query:
+  - `"in"`: Incoming edges (entity is target)
+  - `"out"`: Outgoing edges (entity is source)
+  - `"both"`: All edges
+</ParamField>
+
+**Returns:** `list[dict[str, Any]]` - List of relation dicts with `source`, `target`, and all edge attributes
+
+```python
+# Get all relations
+all_relations = kg.get_relations("person:alice", direction="both")
+
+# Get only outgoing relations
+out_relations = kg.get_relations("person:alice", direction="out")
+
+for rel in out_relations:
+    print(f"{rel['source']} --[{rel['relation_type']}]--> {rel['target']}")
+    print(f"  Evidence: {rel['evidence']}")
+    print(f"  Confidence: {rel['confidence']:.2f}")
+```
+
+---
+
+### save
+
+```python
+kg.save(path: str | Path) -> None
+```
+
+Save the knowledge graph to a JSON file.
+
+<ParamField path="path" type="str | Path" required>
+  Output file path
+</ParamField>
+
+```python
+from pathlib import Path
+
+kg.save(Path("./output/graph_data.json"))
+```
+
+---
+
+### export
+
+```python
+kg.export(include_mentions: bool = True) -> dict[str, Any]
+```
+
+Export graph as a JSON-serializable dictionary.
+
+<ParamField path="include_mentions" type="bool" default="True">
+  Include individual relation mentions (can be large for graphs with many duplicate relations)
+</ParamField>
+
+**Returns:** `dict[str, Any]` with keys:
+- `metadata`: Graph metadata (entity count, relation count, timestamps, etc.)
+- `nodes`: List of entity dicts
+- `links`: List of relation dicts
+
+```python
+graph_data = kg.export(include_mentions=False)
+
+print(f"Entities: {len(graph_data['nodes'])}")
+print(f"Relations: {len(graph_data['links'])}")
+print(f"Metadata: {graph_data['metadata']}")
+```
+
+---
+
+## Properties
+
+### entity_count
+
+```python
+kg.entity_count -> int
+```
+
+Number of entities in the graph.
+
+```python
+print(f"Graph has {kg.entity_count} entities")
+```
+
+---
+
+### relation_count
+
+```python
+kg.relation_count -> int
+```
+
+Number of relations in the graph.
+
+```python
+print(f"Graph has {kg.relation_count} relations")
+```
+
+---
+
+## Complete Example
+
+```python
+from pathlib import Path
+from sift_kg import KnowledgeGraph
+
+# Create a new graph
+kg = KnowledgeGraph(
+    canonicalize_relations=True,
+    confidence_aggregation="product_complement",
+)
+
+# Add entities
+kg.add_entity(
+    entity_id="person:alice",
+    entity_type="PERSON",
+    name="Alice Johnson",
+    confidence=0.95,
+    source_documents=["doc1.pdf"],
+)
+
+kg.add_entity(
+    entity_id="org:techcorp",
+    entity_type="ORGANIZATION",
+    name="TechCorp Inc.",
+    confidence=0.98,
+    source_documents=["doc1.pdf", "doc2.pdf"],
+)
+
+# Add a relation
+kg.add_relation(
+    relation_id="rel_001",
+    source_id="person:alice",
+    target_id="org:techcorp",
+    relation_type="WORKS_FOR",
+    confidence=0.92,
+    evidence="Alice Johnson is the CEO of TechCorp.",
+    source_document="doc1.pdf",
+)
+
+# Add another mention of the same relation (will be canonicalized)
+kg.add_relation(
+    relation_id="rel_002",
+    source_id="person:alice",
+    target_id="org:techcorp",
+    relation_type="WORKS_FOR",
+    confidence=0.88,
+    evidence="Alice leads TechCorp as its chief executive.",
+    source_document="doc2.pdf",
+)
+
+# Query the graph
+print(f"Entities: {kg.entity_count}")
+print(f"Relations: {kg.relation_count}")  # Will be 1 (canonicalized)
+
+entity = kg.get_entity("person:alice")
+print(f"Entity: {entity['name']} ({entity['entity_type']})")
+
+relations = kg.get_relations("person:alice", direction="out")
+for rel in relations:
+    print(f"  → {rel['relation_type']} {rel['target']}")
+    print(f"    Confidence: {rel['confidence']:.2f}")
+    print(f"    Support: {rel['support_count']} mentions from {rel['support_doc_count']} docs")
+
+# Save the graph
+kg.save(Path("./my_graph.json"))
+
+# Load it back
+kg_loaded = KnowledgeGraph.load(Path("./my_graph.json"))
+print(f"Loaded: {kg_loaded.entity_count} entities")
+```
+
+---
+
+## NetworkX Integration
+
+The underlying NetworkX graph is accessible via `kg.graph`:
+
+```python
+import networkx as nx
+
+# Access the raw NetworkX graph
+g = kg.graph
+
+# Use NetworkX algorithms
+page_rank = nx.pagerank(g)
+print(f"Top entities by PageRank: {sorted(page_rank.items(), key=lambda x: x[1], reverse=True)[:5]}")
+
+# Community detection
+communities = nx.community.louvain_communities(g.to_undirected())
+print(f"Found {len(communities)} communities")
+
+# Shortest path
+if nx.has_path(g, "person:alice", "person:bob"):
+    path = nx.shortest_path(g, "person:alice", "person:bob")
+    print(f"Shortest path: {path}")
+```

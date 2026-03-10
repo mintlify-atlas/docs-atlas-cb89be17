@@ -1,0 +1,530 @@
+---
+title: How It Works
+description: Understanding the sift-kg pipeline from documents to knowledge graphs
+---
+
+## Pipeline Overview
+
+sift-kg transforms unstructured documents into structured knowledge graphs through a multi-stage pipeline. Each stage can be run independently or as part of the full workflow.
+
+<Steps>
+  <Step title="Extract">
+    Extract entities and relations from documents using LLMs
+  </Step>
+  <Step title="Build">
+    Construct the knowledge graph with automatic pre-deduplication
+  </Step>
+  <Step title="Resolve">
+    Find duplicate entities using LLM-based entity resolution
+  </Step>
+  <Step title="Review">
+    Human review of merge proposals and flagged relations
+  </Step>
+  <Step title="Apply">
+    Apply confirmed merges and rejections to the graph
+  </Step>
+  <Step title="Narrate">
+    Generate human-readable narrative summaries
+  </Step>
+  <Step title="View/Export">
+    Visualize interactively or export to standard formats
+  </Step>
+</Steps>
+
+## Stage 1: Extract
+
+The extraction stage processes documents and identifies entities and relationships.
+
+### Document Ingestion
+
+sift-kg supports 75+ file formats through two extraction backends:
+
+- **kreuzberg** (default): Handles PDF, Word, HTML, Markdown, plain text, and more
+- **pdfplumber**: Alternative PDF extraction with different text recovery strategies
+
+Both backends support OCR for scanned documents:
+
+```bash
+sift extract ./documents --ocr --ocr-backend tesseract
+```
+
+### Chunking Strategy
+
+Large documents are split into overlapping chunks:
+
+- Default chunk size: 10,000 characters
+- Chunks processed concurrently for speed
+- Document context generated from first chunk and passed to all subsequent chunks
+
+This approach balances API costs (fewer chunks = fewer LLM calls) with context window limits.
+
+### Entity and Relation Extraction
+
+For each chunk, the LLM:
+
+1. Identifies entities matching your domain schema
+2. Extracts relationships between entities
+3. Assigns confidence scores (0.0-1.0)
+4. Records source document provenance
+
+Results from all chunks are merged at the document level, with the highest-confidence extraction winning for duplicates.
+
+### Schema Modes
+
+sift-kg operates in two modes:
+
+<CodeGroup>
+
+```yaml Schema-Free Mode
+name: "Schema-Free"
+schema_free: true
+entity_types: {}
+relation_types: {}
+```
+
+```yaml Structured Domain
+name: "OSINT Investigation"
+entity_types:
+  PERSON:
+    description: "Individuals — directors, shareholders, signatories"
+  ORGANIZATION:
+    description: "Companies, trusts, foundations"
+relation_types:
+  BENEFICIAL_OWNER_OF:
+    source_types: [PERSON]
+    target_types: [ORGANIZATION]
+    review_required: true
+```
+
+</CodeGroup>
+
+**Schema-free mode** lets the LLM discover entity and relation types from your documents, then uses that schema for consistent extraction. The discovered schema is saved to `discovered_domain.yaml`.
+
+**Structured domains** provide predefined types with constraints, extraction hints, and review requirements.
+
+### Output
+
+Extraction produces one JSON file per document in `output/extractions/`:
+
+```json
+{
+  "document_id": "report.pdf",
+  "entities": [
+    {
+      "entity_type": "PERSON",
+      "name": "Alice Smith",
+      "confidence": 0.95,
+      "attributes": {
+        "role": "Director",
+        "aliases": ["A. Smith"]
+      }
+    }
+  ],
+  "relations": [
+    {
+      "source": "Alice Smith",
+      "target": "Acme Corp",
+      "relation_type": "DIRECTOR_OF",
+      "confidence": 0.92
+    }
+  ]
+}
+```
+
+## Stage 2: Build
+
+The build stage constructs the knowledge graph from extraction results.
+
+### Pre-Deduplication
+
+Before creating graph nodes, sift-kg runs automatic deduplication to catch obvious duplicates:
+
+**Layer 1: Deterministic Merging**
+- Unicode normalization (café → cafe)
+- Singularization (researchers → researcher)
+- Title stripping (Dr. Smith → Smith)
+- Exact matches after normalization are merged
+
+**Layer 2: Fuzzy Matching**
+- SemHash semantic similarity at 0.95 threshold
+- Catches typos, abbreviations, and transliteration variants
+- Uses Model2Vec for fast, lightweight embeddings
+
+Example: "Mr. Edwards", "Bradley Edwards", and "edwards" all merge to "Bradley Edwards" automatically.
+
+See `/home/daytona/workspace/source/src/sift_kg/graph/prededup.py:75` for implementation details.
+
+### Graph Construction
+
+Entities become nodes with stable IDs:
+
+```python
+def _make_entity_id(name: str, entity_type: str) -> str:
+    normalized = unidecode(name.lower().strip())
+    normalized = "".join(c if c.isalnum() else "_" for c in normalized)
+    return f"{entity_type.lower()}:{normalized}"
+```
+
+Relations become directed edges between nodes, preserving:
+- Source document provenance
+- Confidence scores
+- Relation type and attributes
+
+### Postprocessing
+
+Optional cleanup steps:
+
+1. **Normalize relation types**: Map undefined types to domain schema
+2. **Fix directions**: Ensure source/target match domain constraints
+3. **Activate passive relations**: Convert passive voice to active
+4. **Remove redundant edges**: Prune transitive redundancies
+5. **Prune isolated entities**: Remove disconnected nodes
+
+### Relation Flagging
+
+Relations are flagged for human review if:
+- Confidence below review threshold (default: 0.7)
+- Relation type has `review_required: true` in domain config
+
+Flagged relations are written to `relation_review.yaml`.
+
+### Output
+
+The build stage produces:
+- `graph_data.json`: Complete knowledge graph
+- `relation_review.yaml`: Flagged relations needing review (if any)
+
+## Stage 3: Resolve
+
+Entity resolution finds duplicates that pre-dedup missed — different names for the same entity.
+
+### Batching Strategy
+
+Entities are grouped by type and sorted intelligently:
+
+- **PERSON entities**: Sorted by surname so name variants cluster together
+- **Other entities**: Sorted alphabetically
+
+Large entity sets are split into overlapping batches:
+- Max batch size: 100 entities
+- Overlap: 20 entities between consecutive batches
+- Prevents duplicates from being missed at batch boundaries
+
+### LLM-Based Resolution
+
+For each batch, the LLM receives:
+
+```json
+[
+  {
+    "id": "person:joe_recarey",
+    "name": "Detective Joe Recarey",
+    "aliases": ["Joe Recarey", "Joseph Recarey"]
+  },
+  {
+    "id": "person:joseph_recarey",
+    "name": "Joseph Recarey",
+    "aliases": []
+  }
+]
+```
+
+The LLM identifies:
+
+1. **Duplicates**: Same entity with different names → merge proposals
+2. **Variants**: Parent-child relationships (e.g., "Transformer" vs "GPT-2") → EXTENDS relations
+
+See `/home/daytona/workspace/source/src/sift_kg/resolve/resolver.py:338` for the resolution prompt.
+
+### Cross-Type Deduplication
+
+After per-type resolution, sift-kg finds entities with identical names but different types:
+
+```
+Concept: "reading comprehension"
+Phenomenon: "reading comprehension"
+```
+
+These are merged automatically (no LLM needed), with the canonical type determined by connection count.
+
+### Output
+
+Resolve generates:
+- `merge_proposals.yaml`: DRAFT merge proposals
+- `relation_review.yaml`: Updated with EXTENDS variant relations
+
+## Stage 4: Review
+
+Human review validates LLM proposals before applying changes.
+
+### Interactive Review
+
+The `sift review` command presents proposals one by one:
+
+```
+┌─ Merge 1/23 ─────────────────────────────────────┐
+│ Merge into: Bradley Edwards (person:bradley_ed…) │
+│ Type: PERSON                                      │
+│                                                   │
+│ Members to merge                                  │
+│   Member              ID                 Confid…  │
+│   Mr. Edwards         person:mr_edwards     92%   │
+│   Detective Edwards   person:detective_e…   88%   │
+│                                                   │
+│ Reason: Same person with different titles         │
+└───────────────────────────────────────────────────┘
+  [a]pprove  [r]eject  [s]kip  [q]uit →
+```
+
+See `/home/daytona/workspace/source/src/sift_kg/resolve/reviewer.py:39` for review implementation.
+
+### Auto-Approval
+
+High-confidence proposals are auto-approved:
+
+```bash
+sift review --auto-approve 0.85  # Auto-confirm when all members ≥ 85%
+```
+
+Low-confidence relations can be auto-rejected:
+
+```bash
+sift review --auto-reject 0.5  # Auto-reject relations < 50% confidence
+```
+
+### Status Tracking
+
+Proposals move through three states:
+- `DRAFT`: Awaiting review
+- `CONFIRMED`: Approved by human
+- `REJECTED`: Rejected by human
+
+Only `CONFIRMED` proposals are applied in the next stage.
+
+## Stage 5: Apply
+
+The apply stage executes confirmed changes to the graph.
+
+### Entity Merging
+
+For each confirmed merge proposal:
+
+1. **Merge node data**: Combine attributes, keeping canonical values
+2. **Rewrite edges**: Point all relations to canonical entity
+3. **Remove merged nodes**: Delete duplicate entities
+4. **Drop self-loops**: Remove relations created by merging
+
+Example at `/home/daytona/workspace/source/src/sift_kg/resolve/engine.py:11`:
+
+```python
+def apply_merges(kg: KnowledgeGraph, merge_file: MergeFile) -> dict[str, int]:
+    # Build merge map: member_id → canonical_id
+    merge_map: dict[str, str] = {}
+    for proposal in merge_file.confirmed:
+        for member in proposal.members:
+            if member.id != proposal.canonical_id:
+                merge_map[member.id] = proposal.canonical_id
+    
+    # Rewrite all edges
+    for source, target, key, data in kg.graph.edges(data=True, keys=True):
+        new_source = merge_map.get(source, source)
+        new_target = merge_map.get(target, target)
+        # Update edge endpoints...
+```
+
+### Relation Rejections
+
+Rejected relations are removed from the graph, including symmetric counterparts.
+
+### Output
+
+The graph is updated in place:
+- `graph_data.json`: Updated with merges and rejections applied
+
+Statistics reported:
+- Entities merged
+- Nodes removed
+- Relations rejected
+- Self-loops dropped
+
+## Stage 6: Narrate
+
+The narrate stage generates human-readable summaries using the knowledge graph structure.
+
+### Community Detection
+
+Entities are grouped into communities using the Louvain algorithm for modularity maximization. The LLM then generates descriptive labels for each community based on member entities.
+
+### Entity Descriptions
+
+For entities with degree ≥ 3, the LLM generates concise descriptions based on:
+- Entity type and attributes
+- Connected entities and relationships
+- Source documents
+
+Descriptions are saved to `entity_descriptions.json` and used in visualizations.
+
+### Narrative Generation
+
+The LLM synthesizes:
+- Overview of the knowledge graph
+- Key themes and communities
+- Important entities and their relationships
+- Timeline of events (if dates are present)
+
+Output is written to `narrative.md` as a structured markdown document.
+
+### Cost Control
+
+```bash
+sift narrate --max-cost 5.00              # Set budget cap
+sift narrate --no-descriptions            # Skip entity descriptions
+sift narrate --communities-only           # Only regenerate labels (~$0.01)
+```
+
+## Stage 7: View & Export
+
+### Interactive Visualization
+
+Generate an interactive HTML graph:
+
+```bash
+sift view                                 # Open in browser
+sift view --top 100                       # Show top 100 by degree
+sift view --min-confidence 0.8            # Filter low-confidence
+sift view --neighborhood person:alice     # Focus on entity neighborhood
+sift view --community "Community 1"       # Filter by community
+```
+
+The viewer uses vis.js for interactive exploration with:
+- Physics-based layout
+- Click-to-expand neighborhoods
+- Filtering by entity type, confidence, source document
+- Entity descriptions on hover (if generated)
+
+### Export Formats
+
+sift-kg exports to standard graph formats:
+
+<CodeGroup>
+
+```bash GraphML (Gephi, Cytoscape)
+sift export graphml
+```
+
+```bash GEXF (Gephi)
+sift export gexf
+```
+
+```bash CSV (Excel, databases)
+sift export csv
+# Creates: entities.csv, relations.csv
+```
+
+```bash SQLite
+sift export sqlite
+# Creates: graph.sqlite with entities and relations tables
+```
+
+```bash JSON
+sift export json
+# Full graph data with all attributes
+```
+
+</CodeGroup>
+
+All formats preserve:
+- Entity types and attributes
+- Relation types and confidence scores
+- Source document provenance
+- Entity descriptions (if generated)
+
+## Incremental Processing
+
+sift-kg tracks extraction metadata to avoid re-processing:
+
+```bash
+sift extract ./docs          # Initial extraction
+sift extract ./docs          # Skips already-processed documents
+sift extract ./docs --force  # Re-extract everything
+```
+
+Extractions are marked stale if:
+- Model changed
+- Domain changed
+- Chunk size changed
+
+Stale extractions are automatically re-processed.
+
+## Library Usage
+
+All pipeline stages are available as library functions:
+
+```python
+from pathlib import Path
+from sift_kg.domains.loader import load_domain
+from sift_kg.pipeline import (
+    run_extract,
+    run_build,
+    run_resolve,
+    run_apply_merges,
+    run_narrate,
+    run_export,
+    run_view,
+)
+
+# Load domain
+domain = load_domain(bundled_name="osint")
+
+# Run extraction
+doc_dir = Path("./documents")
+output_dir = Path("./output")
+model = "openai/gpt-4o-mini"
+
+extractions = run_extract(
+    doc_dir=doc_dir,
+    model=model,
+    domain=domain,
+    output_dir=output_dir,
+    chunk_size=10000,
+    concurrency=4,
+)
+
+# Build graph
+kg = run_build(output_dir=output_dir, domain=domain)
+
+# Resolve duplicates
+merge_file = run_resolve(
+    output_dir=output_dir,
+    model=model,
+    domain=domain,
+)
+
+# Human review happens here (edit merge_proposals.yaml)
+
+# Apply confirmed merges
+stats = run_apply_merges(output_dir=output_dir)
+
+# Generate narrative
+narrative_path = run_narrate(
+    output_dir=output_dir,
+    model=model,
+    system_context=domain.system_context,
+)
+
+# Export
+export_path = run_export(output_dir=output_dir, fmt="graphml")
+```
+
+See `/home/daytona/workspace/source/src/sift_kg/pipeline.py` for complete API documentation.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Domains" icon="sitemap" href="/concepts/domains">
+    Learn about bundled domains and creating custom schemas
+  </Card>
+  <Card title="Entity Resolution" icon="code-merge" href="/concepts/entity-resolution">
+    Deep dive into the 4-layer deduplication approach
+  </Card>
+</CardGroup>

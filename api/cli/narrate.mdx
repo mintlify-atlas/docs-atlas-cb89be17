@@ -1,0 +1,197 @@
+---
+title: "sift narrate"
+description: "Generate narrative summary from knowledge graph"
+---
+
+## Overview
+
+Generate human-readable narrative summaries of the knowledge graph using LLM-based generation. Creates entity descriptions, community summaries, and overall narrative document.
+
+## Usage
+
+```bash
+sift narrate [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--model" type="string">
+  LLM model for narrative generation (e.g., `openai/gpt-4o`, `anthropic/claude-3-5-sonnet-20241022`). Overrides config default.
+</ParamField>
+
+<ParamField path="--domain" type="string">
+  Path to custom domain YAML file. Used for system context in generation prompts.
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name (e.g., `general`, `osint`). Use `-d` as shorthand.
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Output directory containing graph data. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--no-descriptions" type="boolean" default="false">
+  Skip per-entity descriptions. Generates only high-level narrative and community summaries.
+</ParamField>
+
+<ParamField path="--max-cost" type="float">
+  Maximum cost budget in USD. Generation stops when limit is reached.
+</ParamField>
+
+<ParamField path="--communities-only" type="boolean" default="false">
+  Only regenerate community labels (cost: ~$0.01). Useful for quick community relabeling.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Behavior
+
+### Generation Process
+
+1. **Load Graph** - Reads `graph_data.json`
+2. **Community Detection** - Identifies graph communities
+3. **Community Labeling** - Generates descriptive labels for each community
+4. **Entity Descriptions** - Creates narrative description for each entity (unless `--no-descriptions`)
+5. **Overall Narrative** - Synthesizes high-level summary
+
+### Community Detection
+
+Uses graph algorithms to identify densely connected subgraphs representing themes or topics in the knowledge base.
+
+### Cost Management
+
+Narrative generation can be expensive for large graphs:
+- Use `--max-cost` to limit spending
+- Use `--no-descriptions` to skip entity descriptions (~50-80% cost savings)
+- Use `--communities-only` for minimal regeneration (~$0.01)
+
+## Output Files
+
+### narrative.md
+
+Markdown document containing:
+- Overall summary of knowledge graph
+- Community summaries with key entities
+- Statistics and insights
+
+Saved to: `{output_dir}/narrative.md`
+
+### entity_descriptions.json
+
+JSON file mapping entity IDs to narrative descriptions:
+
+```json
+{
+  "entity_123": "Description of entity...",
+  "entity_456": "Another description..."
+}
+```
+
+Saved to: `{output_dir}/entity_descriptions.json`
+
+Used by:
+- `sift view` - Shows descriptions in visualization
+- `sift search --description` - Displays in search results
+- `sift export` - Includes in exported formats
+
+### communities.json
+
+Community detection results with labels.
+
+Saved to: `{output_dir}/communities.json`
+
+## Examples
+
+### Full narrative generation
+
+```bash
+sift narrate
+```
+
+Generates complete narrative with entity descriptions.
+
+### Quick community-only generation
+
+```bash
+sift narrate --communities-only
+```
+
+Regenerates only community labels (~$0.01 cost).
+
+### Without entity descriptions
+
+```bash
+sift narrate --no-descriptions
+```
+
+Generates high-level narrative only, skipping per-entity descriptions.
+
+### With cost limit
+
+```bash
+sift narrate --max-cost 2.0 --model openai/gpt-4o-mini
+```
+
+Limits generation to $2 budget using cheaper model.
+
+### With domain context
+
+```bash
+sift narrate --domain ./medical-domain.yaml --model anthropic/claude-3-5-sonnet-20241022
+```
+
+Uses medical domain context for specialized narrative generation.
+
+## Output Summary
+
+Displays:
+- Output file location
+- Total cost in USD
+- Pipeline completion message
+
+## Next Steps
+
+After narrative generation:
+
+```bash
+sift view
+```
+
+To visualize the graph with entity descriptions, or:
+
+```bash
+sift export graphml
+```
+
+To export with descriptions included.
+
+## Performance Considerations
+
+### Large Graphs
+
+For graphs with 1000+ entities:
+- Expect $5-20 cost for full generation
+- Use `--no-descriptions` to reduce cost
+- Consider `--max-cost` to limit spending
+
+### Model Selection
+
+- **Fast/Cheap**: `openai/gpt-4o-mini` (~$0.10-0.50 for typical graph)
+- **Quality**: `anthropic/claude-3-5-sonnet-20241022` (~$2-10 for typical graph)
+- **Local**: `ollama/llama3` (free, slower, lower quality)
+
+## Error Handling
+
+Exits with error if:
+- No `graph_data.json` found (run `sift build` first)
+- API key validation fails
+- Cost limit exceeded mid-generation
+
+## See Also
+
+- [view](/api/cli/view) - Visualize graph with descriptions
+- [search](/api/cli/search) - Search entities with descriptions
+- [export](/api/cli/export) - Export graph with descriptions

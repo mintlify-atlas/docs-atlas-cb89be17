@@ -1,0 +1,212 @@
+---
+title: "sift domains"
+description: "List available bundled domains"
+---
+
+## Overview
+
+Display all bundled domain configurations available in sift-kg. Domains define entity types, relation types, and extraction schemas for specialized use cases.
+
+## Usage
+
+```bash
+sift domains
+```
+
+## Options
+
+No options. This command takes no arguments.
+
+## Behavior
+
+Displays a table with:
+- **Name** - Domain identifier used with `--domain-name`
+- **Description** - Purpose and use case
+- **Entities** - Number of defined entity types
+- **Relations** - Number of defined relation types
+
+## Output Format
+
+```
+┌─────────────────────────────────────────┐
+│       Available Domains                 │
+├──────────────┬─────────────┬──────┬─────┤
+│ Name         │ Description │ Ent  │ Rel │
+├──────────────┼─────────────┼──────┼─────┤
+│ schema-free  │ Discover... │ 0    │ 0   │
+│ general      │ General...  │ 15   │ 20  │
+│ osint        │ OSINT...    │ 25   │ 30  │
+│ academic     │ Academic... │ 12   │ 18  │
+└──────────────┴─────────────┴──────┴─────┘
+
+Usage: sift extract ./docs --domain-name osint
+Custom: sift extract ./docs --domain path/to/domain.yaml
+```
+
+## Bundled Domains
+
+### schema-free
+
+**Use case**: Automatic schema discovery
+
+- No predefined entity or relation types
+- LLM discovers schema during extraction
+- Best for exploratory analysis
+- Saved to `discovered_domain.yaml`
+
+### general
+
+**Use case**: General-purpose documents
+
+Common entity types:
+- PERSON
+- ORGANIZATION
+- LOCATION
+- DATE
+- EVENT
+
+### osint
+
+**Use case**: Open-source intelligence
+
+Specialized types:
+- PERSON
+- ORGANIZATION
+- LOCATION
+- IP_ADDRESS
+- URL
+- PHONE_NUMBER
+- EMAIL
+
+### academic
+
+**Use case**: Research papers and publications
+
+Scholar-focused types:
+- AUTHOR
+- PUBLICATION
+- INSTITUTION
+- CONCEPT
+- DATASET
+- METHOD
+
+## Usage Examples
+
+### List domains
+
+```bash
+sift domains
+```
+
+Displays all available bundled domains.
+
+### Use a bundled domain
+
+```bash
+sift extract ./docs --domain-name osint
+```
+
+Extracts using OSINT domain schema.
+
+### Use schema-free domain
+
+```bash
+sift extract ./docs --domain-name schema-free
+```
+
+Lets LLM discover entity and relation types automatically.
+
+## Custom Domains
+
+To use a custom domain YAML:
+
+```bash
+sift extract ./docs --domain path/to/custom-domain.yaml
+```
+
+### Custom Domain Format
+
+```yaml
+name: my-domain
+description: Custom domain for legal documents
+
+entity_types:
+  CASE:
+    description: Legal case
+  STATUTE:
+    description: Legal statute or law
+
+relation_types:
+  CITES:
+    source_types: [CASE]
+    target_types: [CASE, STATUTE]
+```
+
+## Domain Configuration
+
+### Set Default Domain
+
+In `sift.yaml`:
+
+```yaml
+domain: osint  # or path/to/domain.yaml
+```
+
+Or via environment:
+
+```bash
+export SIFT_DOMAIN_PATH=osint
+```
+
+### Priority Order
+
+1. `--domain` CLI flag
+2. `SIFT_DOMAIN_PATH` environment variable
+3. `domain` in `sift.yaml`
+4. Default: `schema-free`
+
+## Domain Selection Guide
+
+### When to use schema-free
+
+- Exploring new document types
+- Unknown domain structure
+- Prototyping
+- Maximum flexibility
+
+### When to use general
+
+- Business documents
+- News articles
+- General reports
+- Common entity types
+
+### When to use osint
+
+- Intelligence gathering
+- Security analysis
+- Threat research
+- Technical indicators
+
+### When to use academic
+
+- Research papers
+- Scientific literature
+- Academic citations
+- Knowledge synthesis
+
+### When to use custom
+
+- Domain-specific requirements
+- Specialized entity types
+- Custom relation schemas
+- Strict validation needed
+
+## Output
+
+Exits with status 0 after displaying table.
+
+## See Also
+
+- [init](/api/cli/init) - Initialize project with domain
+- [extract](/api/cli/extract) - Use domain for extraction

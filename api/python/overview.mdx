@@ -1,0 +1,194 @@
+---
+title: Python API Overview
+description: Use sift-kg as a Python library for programmatic knowledge graph extraction
+---
+
+## Introduction
+
+While sift-kg is primarily a CLI tool, you can also use it as a Python library in your notebooks, web apps, or data pipelines. The Python API gives you full control over the extraction pipeline with explicit parameters instead of CLI arguments.
+
+## Installation
+
+```bash
+pip install sift-kg
+```
+
+For embedding-based entity resolution:
+
+```bash
+pip install "sift-kg[embeddings]"
+```
+
+## Quick Start
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_pipeline
+
+# Load a domain configuration
+domain = load_domain(bundled_name="schema-free")
+
+# Run the full pipeline
+output_dir = run_pipeline(
+    doc_dir=Path("./documents"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+    max_cost=5.0,  # Budget cap in USD
+    include_narrative=True,
+)
+
+print(f"Pipeline complete! Results in {output_dir}")
+```
+
+## Core Imports
+
+```python
+from sift_kg import (
+    # Pipeline functions
+    run_pipeline,      # Full pipeline: extract → build → narrate
+    run_extract,       # Step 1: Extract entities and relations
+    run_build,         # Step 2: Build knowledge graph
+    run_resolve,       # Step 3: Find duplicate entities
+    run_apply_merges,  # Step 4: Apply confirmed merges
+    run_narrate,       # Step 5: Generate narrative summary
+    run_view,          # Generate interactive visualization
+    run_export,        # Export to various formats
+    
+    # Core classes
+    KnowledgeGraph,    # Knowledge graph data structure
+    DomainConfig,      # Domain configuration schema
+    LLMClient,         # LLM client wrapper
+    
+    # Utilities
+    load_domain,       # Load domain configurations
+    export_graph,      # Export graph helper
+)
+```
+
+## Pipeline Architecture
+
+The sift-kg pipeline consists of several stages:
+
+1. **Extract** (`run_extract`): Parse documents and extract entities/relations using an LLM
+2. **Build** (`run_build`): Construct a knowledge graph from extractions
+3. **Resolve** (`run_resolve`): Find duplicate entities using LLM-based comparison
+4. **Apply Merges** (`run_apply_merges`): Apply human-reviewed entity merges
+5. **Narrate** (`run_narrate`): Generate narrative summaries using community detection
+6. **View** (`run_view`): Create interactive HTML visualizations
+7. **Export** (`run_export`): Export to GraphML, GEXF, CSV, or SQLite
+
+You can run the full pipeline with `run_pipeline()` or individual stages for more control.
+
+## Basic Example: Step-by-Step
+
+```python
+from pathlib import Path
+from sift_kg import (
+    load_domain,
+    run_extract,
+    run_build,
+    run_view,
+    KnowledgeGraph,
+)
+
+# 1. Load domain
+domain = load_domain(bundled_name="schema-free")
+
+# 2. Extract entities and relations
+extractions = run_extract(
+    doc_dir=Path("./documents"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+    chunk_size=10000,
+    concurrency=4,
+)
+print(f"Extracted {len(extractions)} documents")
+
+# 3. Build knowledge graph
+kg = run_build(
+    output_dir=Path("./output"),
+    domain=domain,
+    review_threshold=0.7,
+    postprocess=True,
+)
+print(f"Graph: {kg.entity_count} entities, {kg.relation_count} relations")
+
+# 4. Generate visualization
+html_path = run_view(
+    output_dir=Path("./output"),
+    open_browser=False,
+    min_confidence=0.5,
+)
+print(f"Visualization saved to {html_path}")
+```
+
+## Using Custom Domains
+
+```python
+from pathlib import Path
+from sift_kg import load_domain, run_extract
+
+# Load custom domain configuration
+domain = load_domain(domain_path=Path("./my_domain.yaml"))
+
+# Use it in extraction
+extractions = run_extract(
+    doc_dir=Path("./documents"),
+    model="openai/gpt-4o-mini",
+    domain=domain,
+    output_dir=Path("./output"),
+)
+```
+
+## Working with the Knowledge Graph
+
+```python
+from pathlib import Path
+from sift_kg import KnowledgeGraph
+
+# Load an existing graph
+kg = KnowledgeGraph.load("./output/graph_data.json")
+
+# Query entities
+entity = kg.get_entity("person:alice")
+if entity:
+    print(f"Name: {entity['name']}")
+    print(f"Type: {entity['entity_type']}")
+    print(f"Confidence: {entity['confidence']}")
+
+# Get relations
+relations = kg.get_relations("person:alice", direction="out")
+for rel in relations:
+    print(f"{rel['source']} --[{rel['relation_type']}]--> {rel['target']}")
+
+# Export to different formats
+from sift_kg import export_graph
+
+export_graph(kg, Path("./graph.graphml"), "graphml")
+export_graph(kg, Path("./graph.sqlite"), "sqlite")
+export_graph(kg, Path("./csv"), "csv")
+```
+
+## Environment Setup
+
+Set your LLM API keys before running:
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="sk-..."
+
+# Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Or other providers via LiteLLM
+export COHERE_API_KEY="..."
+export GEMINI_API_KEY="..."
+```
+
+## Next Steps
+
+- [Pipeline Functions](/api/python/pipeline) - Detailed documentation for all pipeline functions
+- [KnowledgeGraph Class](/api/python/knowledge-graph) - Work with knowledge graphs programmatically
+- [Domain Configuration](/api/python/domain-config) - Create custom domain schemas

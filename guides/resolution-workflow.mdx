@@ -1,0 +1,459 @@
+---
+title: Entity Resolution Workflow
+description: Complete guide to finding, reviewing, and merging duplicate entities
+icon: object-group
+---
+
+Entity resolution identifies when multiple extracted entities refer to the same real-world thing (e.g., "Dr. Smith", "John Smith", and "J. Smith" are all the same person). This workflow uses LLMs to propose merges, then lets you review and apply them.
+
+## Workflow Overview
+
+<Steps>
+  <Step title="Find Duplicates">
+    `sift resolve` uses LLM analysis to identify likely duplicates
+  </Step>
+  
+  <Step title="Review Proposals">
+    `sift review` presents proposals interactively for approval/rejection
+  </Step>
+  
+  <Step title="Apply Merges">
+    `sift apply-merges` consolidates approved entities and cleans up rejected relations
+  </Step>
+</Steps>
+
+## Step 1: Find Duplicates
+
+```bash
+sift resolve
+```
+
+This analyzes entities in `graph_data.json` and generates `merge_proposals.yaml`.
+
+### Command Options
+
+<ParamField path="--model" type="string">
+  LLM model for resolution (defaults to `SIFT_DEFAULT_MODEL`)
+</ParamField>
+
+<ParamField path="--domain" type="path">
+  Path to domain YAML (for system context)
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name
+</ParamField>
+
+<ParamField path="-c, --concurrency" type="integer" default="4">
+  Concurrent LLM calls for faster resolution
+</ParamField>
+
+<ParamField path="--rpm" type="integer" default="40">
+  Max requests per minute
+</ParamField>
+
+<ParamField path="--embeddings" type="boolean">
+  Use semantic clustering instead of alphabetical batching (requires `pip install sift-kg[embeddings]`)
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory (defaults to `output/`)
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Verbose logging
+</ParamField>
+
+### How It Works
+
+<Steps>
+  <Step title="Group by Type">
+    Entities are grouped by type (PERSON, ORGANIZATION, etc.)
+  </Step>
+  
+  <Step title="Sort for Clustering">
+    - PERSON entities sorted by surname ("Bradley Edwards", "Detective Edwards", "Mr. Edwards" cluster together)
+    - Other types sorted alphabetically
+  </Step>
+  
+  <Step title="Batch Processing">
+    Large entity lists split into overlapping batches (100 entities per batch, 20 entity overlap)
+  </Step>
+  
+  <Step title="LLM Analysis">
+    Each batch sent to LLM which identifies:
+    - **Duplicates**: Same entity with name variations
+    - **Variants**: Related entities with EXTENDS relationship (e.g., "deep learning" extends "machine learning")
+  </Step>
+  
+  <Step title="Cross-Type Dedup">
+    Finds entities with identical names but different types (no LLM needed)
+  </Step>
+</Steps>
+
+### Example Output
+
+```
+$ sift resolve
+
+Domain: schema-free (discovered)
+Graph: 1,247 entities, 3,891 relations
+
+Resolving 342 PERSON entities
+  Batch 1/4: 100 entities
+  Batch 2/4: 100 entities
+  Batch 3/4: 100 entities
+  Batch 4/4: 62 entities
+Resolving 189 ORGANIZATION entities
+  Batch 1/2: 100 entities
+  Batch 2/2: 109 entities
+
+Found 47 merge proposals
+Found 12 variant relationships (EXTENDS)
+  Cost: $1.23
+  Output: output/
+
+Next: sift review to approve/reject merges and relations
+  Then: sift apply-merges
+```
+
+## Step 2: Review Proposals
+
+```bash
+sift review
+```
+
+Interactive terminal UI for reviewing merge proposals and flagged relations.
+
+### Command Options
+
+<ParamField path="--auto-approve" type="float" default="0.85">
+  Auto-confirm proposals where all members have confidence ≥ this threshold. Set to 1.0 to disable.
+</ParamField>
+
+<ParamField path="--auto-reject" type="float" default="0.5">
+  Auto-reject relations with confidence below this threshold. Set to 0.0 to disable.
+</ParamField>
+
+<ParamField path="-o, --output" type="path">
+  Output directory containing `merge_proposals.yaml` and `relation_review.yaml`
+</ParamField>
+
+### Interactive Review
+
+For each proposal, you see:
+
+```
+╭─ Merge 1/47 ─────────────────────────────────────────────╮
+│ Merge into: John Smith  (person:john_smith)              │
+│ Type: PERSON                                             │
+│                                                          │
+│       Members to merge                                   │
+│   Member               ID                  Confidence    │
+│   J. Smith             person:j_smith          95%       │
+│   Dr. Smith            person:dr_smith         90%       │
+│   Smith                person:smith            85%       │
+│                                                          │
+│ Reason: Same person with title/initial variations        │
+╰──────────────────────────────────────────────────────────╯
+
+  [a]pprove  [r]eject  [s]kip  [q]uit →
+```
+
+**Controls:**
+- `a` — Approve merge (status → CONFIRMED)
+- `r` — Reject merge (status → REJECTED)
+- `s` — Skip for now (status stays DRAFT)
+- `q` — Quit and save progress
+
+### Auto-Approve/Reject
+
+High-confidence proposals are auto-approved before interactive review:
+
+```
+Auto-approved 23 proposals (all members ≥ 85% confidence)
+
+Entity Merge Review — 24 proposals to review
+```
+
+Similarly, very low-confidence relations are auto-rejected.
+
+## Merge Proposal File
+
+Proposals are saved to `merge_proposals.yaml`:
+
+```yaml
+proposals:
+  - canonical_id: person:john_smith
+    canonical_name: John Smith
+    entity_type: PERSON
+    status: CONFIRMED
+    members:
+      - id: person:j_smith
+        name: J. Smith
+        confidence: 0.95
+      - id: person:dr_smith
+        name: Dr. Smith
+        confidence: 0.9
+    reason: Same person with title/initial variations
+
+  - canonical_id: organization:acme_corporation
+    canonical_name: Acme Corporation
+    entity_type: ORGANIZATION
+    status: DRAFT
+    members:
+      - id: organization:acme_corp
+        name: Acme Corp
+        confidence: 0.85
+      - id: organization:acme
+        name: ACME
+        confidence: 0.8
+    reason: Acronym and abbreviation of same company
+```
+
+**Status values:**
+- `DRAFT` — Not yet reviewed
+- `CONFIRMED` — User approved, will be applied
+- `REJECTED` — User rejected, will be ignored
+
+### Manual Editing
+
+You can edit the YAML file directly:
+
+```yaml
+# Change status to approve/reject
+status: CONFIRMED
+
+# Remove members that shouldn't merge
+members:
+  - id: person:j_smith
+    name: J. Smith
+    confidence: 0.95
+  # Removed person:dr_smith - actually a different person
+
+# Add your own reason
+reason: Verified in company directory - same person
+```
+
+## Relation Review
+
+Flagged relations (from `sift build` or `sift resolve`) appear in `relation_review.yaml`:
+
+```yaml
+review_threshold: 0.7
+relations:
+  - source_id: concept:deep_learning
+    source_name: deep learning
+    target_id: concept:machine_learning
+    target_name: machine learning
+    relation_type: EXTENDS
+    confidence: 0.75
+    evidence: "Deep learning is a subset of machine learning"
+    status: DRAFT
+    flag_reason: "Variant relationship discovered during entity resolution"
+
+  - source_id: person:john_smith
+    source_name: John Smith
+    target_id: organization:acme_corp
+    target_name: Acme Corp
+    relation_type: WORKS_FOR
+    confidence: 0.62
+    evidence: "Smith mentioned Acme in passing"
+    source_document: document3
+    status: DRAFT
+    flag_reason: "Low confidence (0.62 < 0.7)"
+```
+
+During `sift review`, you approve or reject each relation:
+
+```
+╭─ Relation 1/12 ──────────────────────────────────────────╮
+│ deep learning  —[EXTENDS]→  machine learning             │
+╰─ Variant relationship | confidence: 75% | from: doc1 ────╯
+  Evidence: Deep learning is a subset of machine learning
+
+  [a]pprove  [r]eject  [s]kip  [q]uit →
+```
+
+## Step 3: Apply Merges
+
+```bash
+sift apply-merges
+```
+
+Applies all `CONFIRMED` merges and removes `REJECTED` relations.
+
+### What Happens During Apply
+
+<Steps>
+  <Step title="Merge Entities">
+    - All member entities merged into canonical entity
+    - Attributes combined (lists merged, highest confidence for conflicts)
+    - Source documents tracked from all members
+  </Step>
+  
+  <Step title="Redirect Relations">
+    - Relations pointing to merged entities updated to point to canonical
+    - Duplicate relations consolidated with highest confidence
+  </Step>
+  
+  <Step title="Remove Rejected Relations">
+    - Relations marked `REJECTED` in `relation_review.yaml` are deleted
+  </Step>
+  
+  <Step title="Update Graph">
+    - Modified graph saved to `graph_data.json`
+    - Statistics displayed
+  </Step>
+</Steps>
+
+### Example Output
+
+```
+$ sift apply-merges
+
+Graph: 1,247 entities, 3,891 relations
+  Entity merges applied: 47
+  Relations rejected: 8
+
+Graph updated!
+  Entities: 1,200 (47 merged)
+  Relations: 3,883 (8 rejected)
+
+Next: sift narrate to generate narrative summary
+```
+
+## Complete Example Workflow
+
+<CodeGroup>
+```bash Full Workflow
+# 1. Extract entities from documents
+sift extract ./documents
+
+# 2. Build knowledge graph
+sift build
+
+# 3. Find duplicates
+sift resolve
+
+# 4. Review and approve/reject
+sift review
+
+# 5. Apply approved merges
+sift apply-merges
+
+# 6. Visualize cleaned graph
+sift view
+```
+
+```bash Automated (High Confidence Only)
+# Auto-approve high-confidence merges
+sift review --auto-approve 0.9 --auto-reject 0.4
+
+# Apply immediately
+sift apply-merges
+```
+
+```bash Careful Review (Manual)
+# No auto-approval, review everything
+sift review --auto-approve 1.0 --auto-reject 0.0
+```
+</CodeGroup>
+
+## Advanced: Semantic Clustering
+
+Use embeddings for smarter entity grouping:
+
+```bash
+# Install embedding dependencies
+pip install sift-kg[embeddings]
+
+# Use semantic clustering
+sift resolve --embeddings
+```
+
+This groups entities by meaning rather than alphabetically:
+- "neural networks" clusters with "deep learning" (not with "networks")
+- "CEO" clusters with "chief executive" (not with "CFO")
+
+More accurate but slower and requires ~500MB model download.
+
+## Tips for Better Resolution
+
+<Steps>
+  <Step title="Use Specific Models">
+    Better models produce more accurate merge proposals:
+    ```bash
+    sift resolve --model anthropic/claude-3-5-sonnet
+    ```
+  </Step>
+  
+  <Step title="Provide Domain Context">
+    Add system context to your domain YAML so the LLM understands your entity types:
+    ```yaml
+    system_context: |
+      This is a corporate knowledge base tracking executives,
+      companies, and M&A transactions in the technology sector.
+    ```
+  </Step>
+  
+  <Step title="Iterative Resolution">
+    Run `sift resolve` → `sift review` → `sift apply-merges` multiple times.
+    Each iteration improves graph quality.
+  </Step>
+  
+  <Step title="Manual YAML Edits">
+    For bulk operations, edit `merge_proposals.yaml` directly in your editor.
+    Change all matching patterns to CONFIRMED or REJECTED.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### No proposals found
+
+This is normal for:
+- Small graphs (fewer than 50 entities)
+- Consistent entity naming in sources
+- After previous resolution passes
+
+### Too many false positives
+
+Lower confidence threshold or use better model:
+
+```bash
+sift review --auto-approve 1.0  # Manual review everything
+sift resolve --model openai/gpt-4o  # More accurate proposals
+```
+
+### Embeddings import error
+
+```bash
+pip install sift-kg[embeddings]
+```
+
+Or fall back to alphabetical batching:
+
+```bash
+sift resolve  # Works without embeddings
+```
+
+### "Graph not found"
+
+Run `sift build` first to create `graph_data.json`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Visualize Graph" icon="eye" href="/guides/visualization">
+    Explore your cleaned knowledge graph
+  </Card>
+  
+  <Card title="Generate Narrative" icon="book" href="/guides/export">
+    Create human-readable summaries
+  </Card>
+  
+  <Card title="Export Data" icon="download" href="/guides/export">
+    Export to external tools for analysis
+  </Card>
+</CardGroup>

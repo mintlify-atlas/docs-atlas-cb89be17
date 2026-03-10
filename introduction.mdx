@@ -1,0 +1,122 @@
+---
+title: Introduction
+description: Turn any collection of documents into a knowledge graph with entity extraction, deduplication, and interactive exploration
+---
+
+# Introduction to sift-kg
+
+**sift-kg** is a zero-config CLI tool that turns any collection of documents into a browsable knowledge graph. Drop in PDFs, papers, articles, or records — get a graph that shows how everything connects, in minutes.
+
+No code, no database, no infrastructure — just a CLI and your documents.
+
+## What is sift-kg?
+
+sift-kg extracts entities and relationships from your documents using LLMs, deduplicates them with your approval, and generates an interactive viewer you can explore in your browser. Every entity and relation links back to the source document and passage.
+
+<CardGroup cols={2}>
+  <Card title="Zero-config start" icon="rocket">
+    Point at a folder, get a knowledge graph — or use `sift.yaml` for persistent settings
+  </Card>
+  <Card title="Any LLM provider" icon="brain">
+    OpenAI, Anthropic, Mistral, Ollama (local/private), or any LiteLLM-compatible provider
+  </Card>
+  <Card title="Human-in-the-loop" icon="user-check">
+    sift proposes entity merges, you approve or reject in an interactive terminal UI
+  </Card>
+  <Card title="Interactive viewer" icon="chart-network">
+    Explore your graph in-browser with community regions, focus mode, search, and filtering
+  </Card>
+</CardGroup>
+
+## Key Features
+
+- **75+ document formats** — PDF, DOCX, XLSX, PPTX, HTML, EPUB, images, and more via [Kreuzberg](https://kreuzberg-dev.github.io/kreuzberg/) extraction engine
+- **OCR for scanned PDFs** — Local OCR via Tesseract (default), EasyOCR, or PaddleOCR, with optional Google Cloud Vision fallback
+- **Schema-free by default** — One LLM call samples your documents and designs a schema tailored to the corpus, saved as `discovered_domain.yaml` for reuse and editing
+- **CLI search** — `sift search "SBF"` finds entities by name or alias, with optional relation and description output
+- **Export anywhere** — GraphML (yEd, Cytoscape), GEXF (Gephi), SQLite, CSV, or native JSON for advanced analysis
+- **Narrative generation** — Prose reports with relationship chains, timelines, and community-grouped entity profiles
+- **Source provenance** — Every extraction links to the document and passage it came from
+- **Multilingual** — Extracts from documents in any language, outputs a unified English knowledge graph
+- **Budget controls** — Set `--max-cost` to cap LLM spending
+- **Runs locally** — Your documents stay on your machine
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Research & Education" icon="graduation-cap">
+    Map how theories, methods, and findings connect across a body of literature. Generate concept maps for courses, literature reviews, or self-study.
+  </Card>
+  <Card title="Business Intelligence" icon="briefcase">
+    Drop in competitor whitepapers, market reports, or internal docs and see the landscape.
+  </Card>
+  <Card title="Investigative Work" icon="magnifying-glass">
+    Analyze FOIA releases, court filings, public records, and document leaks.
+  </Card>
+  <Card title="Legal Review" icon="scale-balanced">
+    Extract and connect entities across document collections.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+```
+Documents (PDF, DOCX, text, HTML, and 75+ formats)
+       ↓
+  Text Extraction (Kreuzberg, local) — with optional OCR
+       ↓
+  Schema Discovery (LLM designs entity/relation types from your data)
+       ↓
+  Entity & Relation Extraction (LLM, using discovered or predefined schema)
+       ↓
+  Knowledge Graph (NetworkX, JSON)
+       ↓
+  Entity Resolution (LLM proposes → you review)
+       ↓
+  Narrative Generation (LLM)
+       ↓
+  Interactive Viewer (browser) / Export (GraphML, GEXF, CSV, SQLite)
+```
+
+## Quick Example
+
+```bash
+pip install sift-kg
+
+sift init                           # create sift.yaml + .env.example
+sift extract ./documents/           # extract entities & relations
+sift build                          # build knowledge graph
+sift resolve                        # find duplicate entities
+sift review                         # approve/reject merges interactively
+sift apply-merges                   # apply your decisions
+sift narrate                        # generate narrative summary
+sift view                           # interactive graph in your browser
+sift export graphml                 # export to Gephi, yEd, Cytoscape, SQLite, etc.
+```
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install sift-kg and configure your environment
+  </Card>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build your first knowledge graph in 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/how-it-works">
+    Learn how sift-kg processes documents
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/api/cli/extract">
+    Explore all available commands
+  </Card>
+</CardGroup>
+
+## Live Demos
+
+Explore these knowledge graphs generated entirely by sift-kg:
+
+- **[Transformers](https://juanceresa.github.io/sift-kg/)** — 12 foundational AI papers mapped as a concept graph (425 entities, ~$0.72)
+- **[FTX Collapse](https://juanceresa.github.io/sift-kg/)** — The FTX collapse from 9 articles (431 entities)
+- **[Epstein](https://juanceresa.github.io/sift-kg/)** — Giuffre v. Maxwell depositions (190 entities from a scanned PDF)
+
+No install, no API key required — just explore.

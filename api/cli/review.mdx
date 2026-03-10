@@ -1,0 +1,182 @@
+---
+title: "sift review"
+description: "Interactively review merge proposals and flagged relations"
+---
+
+## Overview
+
+Interactive CLI tool to review and approve/reject entity merge proposals and low-confidence relations. Provides auto-approval and auto-rejection thresholds to streamline the review process.
+
+## Usage
+
+```bash
+sift review [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--output" type="string">
+  Output directory containing review files. Use `-o` as shorthand.
+</ParamField>
+
+<ParamField path="--auto-approve" type="float" default="0.85">
+  Auto-confirm proposals where all members meet this confidence threshold (0.0-1.0). Set to 1.0 to disable auto-approval.
+</ParamField>
+
+<ParamField path="--auto-reject" type="float" default="0.5">
+  Auto-reject relations below this confidence threshold (0.0-1.0). Set to 0.0 to disable auto-rejection.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Behavior
+
+### Review Process
+
+The command reviews two types of items:
+
+1. **Merge Proposals** - Entity duplicates from `merge_proposals.yaml`
+2. **Flagged Relations** - Low-confidence relations from `relation_review.yaml`
+
+### Interactive Review
+
+For each DRAFT item:
+- Displays entity/relation details
+- Shows confidence score and reasoning
+- Prompts for decision: **approve**, **reject**, or **skip**
+- Auto-approves/rejects based on thresholds
+
+### Status Transitions
+
+- **DRAFT** → **CONFIRMED** (approved)
+- **DRAFT** → **REJECTED** (rejected)
+- **DRAFT** → **DRAFT** (skipped)
+
+## Review Files
+
+### merge_proposals.yaml
+
+Reviews entity merge proposals with status updates:
+
+```yaml
+proposals:
+  draft: []        # Pending review
+  confirmed: []    # Approved
+  rejected: []     # Declined
+```
+
+### relation_review.yaml
+
+Reviews flagged relations with status field:
+
+```yaml
+relations:
+  - source_id: "entity_123"
+    target_id: "entity_456"
+    relation_type: "WORKS_WITH"
+    confidence: 0.65
+    status: draft  # or: confirmed, rejected
+```
+
+## Auto-Approval/Rejection
+
+### Auto-Approve Threshold
+
+Merge proposals where **all members** have confidence ≥ `--auto-approve` are automatically confirmed.
+
+```bash
+sift review --auto-approve 0.9
+```
+
+Only proposals with all members ≥ 0.9 confidence are auto-approved.
+
+### Auto-Reject Threshold
+
+Relations with confidence < `--auto-reject` are automatically rejected.
+
+```bash
+sift review --auto-reject 0.4
+```
+
+Relations below 0.4 confidence are auto-rejected.
+
+### Disable Auto-Actions
+
+```bash
+sift review --auto-approve 1.0 --auto-reject 0.0
+```
+
+Disables both auto-approval and auto-rejection, requiring manual review of all items.
+
+## Examples
+
+### Standard review
+
+```bash
+sift review
+```
+
+Reviews with default thresholds (auto-approve ≥ 0.85, auto-reject &lt; 0.5).
+
+### Conservative review
+
+```bash
+sift review --auto-approve 0.95 --auto-reject 0.3
+```
+
+Only auto-approves very high confidence items, only auto-rejects very low confidence.
+
+### Manual review only
+
+```bash
+sift review --auto-approve 1.0 --auto-reject 0.0
+```
+
+Requires manual decision for every item.
+
+### Review from custom directory
+
+```bash
+sift review --output ./my-project/output
+```
+
+Reviews files in specified output directory.
+
+## Interactive Controls
+
+During review, you can:
+- **Type `y` or `yes`** - Approve item
+- **Type `n` or `no`** - Reject item
+- **Type `s` or `skip`** - Skip to next item
+- **Press Ctrl+C** - Exit review (progress is saved)
+
+## Output
+
+After review:
+- Updates `merge_proposals.yaml` with decisions
+- Updates `relation_review.yaml` with decisions
+- Displays summary of reviewed items
+
+## Next Steps
+
+After reviewing:
+
+```bash
+sift apply-merges
+```
+
+To apply confirmed merges and remove rejected relations from the graph.
+
+## Error Handling
+
+Exits with status 0 if:
+- No review files exist (prompts to run `sift resolve` or `sift build`)
+- No DRAFT items to review
+
+## See Also
+
+- [resolve](/api/cli/resolve) - Generate merge proposals
+- [build](/api/cli/build) - Flag low-confidence relations
+- [apply-merges](/api/cli/apply-merges) - Apply review decisions

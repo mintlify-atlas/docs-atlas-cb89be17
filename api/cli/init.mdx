@@ -1,0 +1,78 @@
+---
+title: "sift init"
+description: "Initialize a new sift-kg project"
+---
+
+## Overview
+
+Initialize a new sift-kg project in the current directory. Creates configuration files to get started with document extraction and knowledge graph building.
+
+## Usage
+
+```bash
+sift init [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--domain" type="string">
+  Path to custom domain YAML to set in project config. If provided, this domain path will be written to the generated `sift.yaml` file.
+</ParamField>
+
+## Behavior
+
+The `init` command creates two configuration files:
+
+1. **`.env.example`** - Template for environment variables including API keys
+2. **`sift.yaml`** - Project configuration file for domain, model, and extraction settings
+
+If these files already exist, you will be prompted to confirm overwriting them.
+
+## Output Files
+
+### .env.example
+
+Contains template for:
+- `SIFT_OPENAI_API_KEY` - OpenAI API key
+- `SIFT_ANTHROPIC_API_KEY` - Anthropic API key
+- `SIFT_DEFAULT_MODEL` - Default LLM model (e.g., `openai/gpt-4o-mini`)
+
+### sift.yaml
+
+Contains project settings:
+- `domain` - Path to domain configuration or bundled domain name
+- `model` - Default LLM model
+- `output` - Output directory path
+- `extraction` - Extraction backend and OCR settings
+
+## Examples
+
+### Basic initialization
+
+```bash
+sift init
+```
+
+Creates default configuration files in the current directory.
+
+### Initialize with custom domain
+
+```bash
+sift init --domain path/to/custom-domain.yaml
+```
+
+Creates configuration files with the specified domain path in `sift.yaml`.
+
+## Next Steps
+
+After running `init`, the command displays next steps:
+
+1. Copy `.env.example` to `.env`: `cp .env.example .env`
+2. Add your API key to `.env`
+3. (Optional) Edit `sift.yaml` to configure domain and settings
+4. Run extraction: `sift extract ./docs/`
+
+## See Also
+
+- [domains](/api/cli/domains) - List available bundled domains
+- [extract](/api/cli/extract) - Extract entities from documents

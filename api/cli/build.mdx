@@ -1,0 +1,138 @@
+---
+title: "sift build"
+description: "Build knowledge graph from extraction results"
+---
+
+## Overview
+
+Construct a knowledge graph from previously extracted entities and relations. Merges duplicate entities, normalizes entity types, removes redundancy, and flags low-confidence relations for review.
+
+## Usage
+
+```bash
+sift build [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--domain" type="string">
+  Path to custom domain YAML file. Used to check review-required relation types and entity normalization.
+</ParamField>
+
+<ParamField path="--domain-name" type="string" default="schema-free">
+  Bundled domain name (e.g., `general`, `osint`, `academic`). Use `-d` as shorthand.
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Output directory containing extraction results. Use `-o` as shorthand. Defaults to config value.
+</ParamField>
+
+<ParamField path="--review-threshold" type="float" default="0.7">
+  Confidence threshold for flagging relations. Relations with confidence below this value are flagged for manual review.
+</ParamField>
+
+<ParamField path="--no-postprocess" type="boolean" default="false">
+  Skip redundancy removal and graph cleanup. Use when you want raw extraction results without normalization.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging. Use `-v` as shorthand.
+</ParamField>
+
+## Behavior
+
+### Graph Building Process
+
+1. **Load Extractions** - Reads all extraction JSON files from `{output_dir}/extractions/`
+2. **Entity Normalization** - Applies domain-specific canonical name mappings
+3. **Relation Validation** - Checks relation types against domain schema (if applicable)
+4. **Redundancy Removal** - Removes duplicate relations and normalizes entity references (unless `--no-postprocess`)
+5. **Confidence Flagging** - Flags low-confidence relations and review-required types
+
+### Schema-Free Mode
+
+If using schema-free domain, loads discovered schema from `discovered_domain.yaml` (created during extraction) for normalization.
+
+## Output Files
+
+### graph_data.json
+
+The built knowledge graph in JSON format containing:
+- All entities with attributes and metadata
+- All relations with confidence scores
+- Source document references
+
+Saved to: `{output_dir}/graph_data.json`
+
+### relation_review.yaml
+
+Generated if relations are flagged for review. Contains:
+- Relations below confidence threshold
+- Relations with types marked `review_required` in domain config
+- Fields: `source_id`, `target_id`, `relation_type`, `confidence`, `status`
+
+Saved to: `{output_dir}/relation_review.yaml`
+
+## Examples
+
+### Basic build
+
+```bash
+sift build
+```
+
+Builds graph from extractions in default output directory with standard post-processing.
+
+### Custom review threshold
+
+```bash
+sift build --review-threshold 0.8
+```
+
+Flags relations with confidence below 0.8 for review.
+
+### Skip post-processing
+
+```bash
+sift build --no-postprocess
+```
+
+Builds raw graph without redundancy removal.
+
+### With custom domain
+
+```bash
+sift build --domain ./my-domain.yaml --output ./results
+```
+
+Builds graph using custom domain config and specified output directory.
+
+## Output Summary
+
+Displays:
+- Total entities in graph
+- Total relations in graph
+- Number of relations flagged for review
+- Output file location
+
+## Next Steps
+
+After building the graph:
+
+```bash
+sift resolve
+```
+
+To find and merge duplicate entities using LLM-based resolution.
+
+## Error Handling
+
+The command exits with error if:
+- No extraction files found in `{output_dir}/extractions/`
+- Output directory doesn't exist
+
+## See Also
+
+- [extract](/api/cli/extract) - Extract entities from documents
+- [resolve](/api/cli/resolve) - Find duplicate entities
+- [review](/api/cli/review) - Review flagged relations
