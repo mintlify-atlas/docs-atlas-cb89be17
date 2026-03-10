@@ -1,0 +1,117 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "sift-kg",
+  "projectDescription": "Turn any collection of documents into a knowledge graph with entity extraction, deduplication, and interactive exploration.",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#a5b4fc",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/how-it-works",
+              "concepts/domains",
+              "concepts/entity-resolution"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/extraction",
+              "guides/building-graphs",
+              "guides/resolution-workflow",
+              "guides/visualization",
+              "guides/export"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/transformers",
+              "examples/ftx",
+              "examples/epstein"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "api/cli/init",
+              "api/cli/extract",
+              "api/cli/build",
+              "api/cli/resolve",
+              "api/cli/review",
+              "api/cli/apply-merges",
+              "api/cli/narrate",
+              "api/cli/view",
+              "api/cli/search",
+              "api/cli/export",
+              "api/cli/domains"
+            ]
+          },
+          {
+            "group": "Python API",
+            "pages": [
+              "api/python/overview",
+              "api/python/pipeline",
+              "api/python/knowledge-graph",
+              "api/python/domain-config"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Zero-config document-to-knowledge-graph pipeline",
+    "Support for 75+ document formats with OCR",
+    "Schema-free entity/relation discovery via LLM",
+    "Human-in-the-loop entity resolution workflow",
+    "Interactive browser-based graph visualization",
+    "Export to GraphML, GEXF, SQLite, CSV formats",
+    "Narrative generation with community detection",
+    "Multi-LLM provider support (OpenAI, Anthropic, Ollama)",
+    "Source provenance tracking for every extraction"
+  ],
+  "publicApiSurface": [
+    "sift init",
+    "sift extract",
+    "sift build",
+    "sift resolve",
+    "sift review",
+    "sift apply-merges",
+    "sift narrate",
+    "sift view",
+    "sift search",
+    "sift export",
+    "sift domains",
+    "run_pipeline()",
+    "run_extract()",
+    "run_build()",
+    "run_resolve()",
+    "run_narrate()",
+    "run_view()",
+    "run_export()",
+    "load_domain()",
+    "KnowledgeGraph",
+    "DomainConfig"
+  ]
+}
